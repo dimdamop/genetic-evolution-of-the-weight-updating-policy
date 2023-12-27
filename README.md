@@ -1,6 +1,6 @@
 # Summary
 
-What is the update of the weights of the network is not proportional to the respective gradients?
+What if the update of the weights of the network is not proportional to the respective gradients?
 
 This repository explores this question in the context of reinforcement learning (RL). The main
 ideas are the following:
