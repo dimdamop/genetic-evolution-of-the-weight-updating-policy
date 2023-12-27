@@ -15,12 +15,12 @@
 This module contains some convenient optimizer definitions, specifically initialization and update
 functions, which can be used with ndarrays or arbitrarily-nested tuple/list/dicts of ndarrays.
 
-An optimizer is modeled as an `(init_fun, update_fun, get_params)` triple of functions, with the
-following signatures:
+An optimizer is modeled as an `(init, update, get_params)` triple of functions, with the following
+signatures:
 
 .. code-block:: python
 
-    def init_fun(params):
+    def init(params):
         '''
         Args:
             params: Pytree representing the initial parameters of the predictor.
@@ -40,13 +40,13 @@ following signatures:
 
         Returns:
             A pytree representing the parameters extracted from `opt_state`, such that the invariant
-            `params == get_params(init_fun(params))` holds true.
+            `params == get_params(init(params))` holds true.
         '''
         pass
 
 .. code-block:: python
 
-    def update_fun(step, grads, opt_state):
+    def update(step, grads, opt_state):
         '''
         Args:
             step: integer representing the step index.
@@ -64,18 +64,18 @@ following signatures:
 
 Notice that an optimizer implementation has a lot of flexibility in the form of opt_state: it just
 has to be a pytree of JaxTypes (so that it can be passed to the JAX transforms defined in api.py)
-and it has to be consumable by `update_fun` and `get_params`.
+and it has to be consumable by `update` and `get_params`.
 
 Example Usage:
 
 .. code-block:: python
 
-    opt_init, opt_update, get_params = optimizers.sgd(learning_rate)
-    opt_state = opt_init(params)
+    opt = optimizers.sgd(learning_rate)
+    opt_state = opt.init(params)
 
     def step(step, opt_state):
         value, grads = jax.value_and_grad(loss_fn)(get_params(opt_state))
-        opt_state = opt_update(step, grads, opt_state)
+        opt_state = opt.update(step, grads, opt_state)
         return value, opt_state
 
     for i in range(num_steps):
@@ -103,7 +103,7 @@ zip = safe_zip
 
 # The implementation here basically works by flattening pytrees. There are two levels of pytrees to
 # think about: the pytree of params, which we can think of as defining an "outer pytree", and
-# a pytree produced by applying init_fun to each leaf of the params pytree, which we can think of as
+# a pytree produced by applying `init` to each leaf of the params pytree, which we can think of as
 # the "inner pytrees". Since pytrees can be flattened, that structure is isomorphic to a list of
 # lists (with no further nesting).
 
@@ -126,10 +126,10 @@ UpdateFn = Callable[[Step, Updates, OptimizerState], OptimizerState]
 ParamsFn = Callable[[OptimizerState], Params]
 
 
-class Optimizer(NamedTuple):
-    init_fn: InitFn
-    update_fn: UpdateFn
-    params_fn: ParamsFn
+class OptimizerT(NamedTuple):
+    init: InitFn
+    update: UpdateFn
+    get_params: ParamsFn
 
 
 Schedule = Callable[[Step], float]
@@ -144,31 +144,30 @@ def optimizer(
             Callable[[State], Params],
         ],
     ]
-) -> Callable[..., Optimizer]:
-    """Decorator to make an optimizer defined for arrays generalize to containers.
+) -> Callable[..., OptimizerT]:
+    """Decorator to generalize the domain of an optimizer defined from arrays to containers.
 
     With this decorator, you can write init, update, and get_params functions that each operate only
     on single arrays, and convert them to corresponding functions that operate on pytrees of
     parameters. See the optimizers defined in optimizers.py for examples.
 
     Args:
-        opt_maker: a function that returns an `(init_fun, update_fun, get_params)` triple of
-            functions that might only work with ndarrays, as per
+        opt_maker: a function that returns an `(init, update, get_params)` triple of functions that
+            might only work with ndarrays, as per
 
             .. code-block:: haskell
 
-                init_fun :: ndarray -> OptStatePytree ndarray
-                update_fun :: OptStatePytree ndarray -> OptStatePytree ndarray
+                init:: ndarray -> OptStatePytree ndarray
+                update:: OptStatePytree ndarray -> OptStatePytree ndarray
                 get_params :: OptStatePytree ndarray -> ndarray
 
     Returns:
-        An `(init_fun, update_fun, get_params)` triple of functions that work on arbitrary pytrees,
-        as per:
+        An `(init, update, get_params)` triple of functions that work on arbitrary pytrees, as per:
 
           .. code-block:: haskell
 
-                init_fun :: ParameterPytree ndarray -> OptimizerState
-                update_fun :: OptimizerState -> OptimizerState
+                init:: ParameterPytree ndarray -> OptimizerState
+                update:: OptimizerState -> OptimizerState
                 get_params :: OptimizerState -> ParameterPytree ndarray
 
         The OptimizerState pytree type used by the returned functions is isomorphic to
@@ -217,7 +216,7 @@ def optimizer(
             params = map(get_params, states)
             return tree_unflatten(tree, params)
 
-        return Optimizer(tree_init, tree_update, tree_get_params)
+        return OptimizerT(init=tree_init, update=tree_update, get_params=tree_get_params)
 
     return tree_opt_maker
 
@@ -227,14 +226,14 @@ def optimizer(
 
 @optimizer
 def sgd(step_size):
-    """Construct optimizer triple for stochastic gradient descent.
+    """Vanilla stochastic gradient descent.
 
     Args:
         step_size: positive scalar, or a callable representing a step size schedule that maps the
             iteration index to a positive scalar.
 
     Returns:
-        An (init_fun, update_fun, get_params) triple.
+        An (init, update, get_params) triple.
     """
     step_size = make_schedule(step_size)
 
@@ -250,7 +249,7 @@ def sgd(step_size):
     def get_params(x):
         return x
 
-    return Optimizer(init, update, get_params)
+    return OptimizerT(init=init, update=update, get_params=get_params)
 
 
 @optimizer
@@ -264,7 +263,7 @@ def momentum(step_size: Schedule, mass: float):
         mass: positive scalar representing the momentum coefficient.
 
     Returns:
-        An (init_fun, update_fun, get_params) triple.
+        An (init, update, get_params) triple.
     """
     step_size = make_schedule(step_size)
 
@@ -282,7 +281,7 @@ def momentum(step_size: Schedule, mass: float):
         x, _ = state
         return x
 
-    return init, update, get_params
+    return OptimizerT(init=init, update=update, get_params=get_params)
 
 
 @optimizer
@@ -296,7 +295,7 @@ def nesterov(step_size: Schedule, mass: float):
       mass: positive scalar representing the momentum coefficient.
 
     Returns:
-        An (init_fun, update_fun, get_params) triple.
+        An (init, update, get_params) triple.
     """
     step_size = make_schedule(step_size)
 
@@ -314,7 +313,7 @@ def nesterov(step_size: Schedule, mass: float):
         x, _ = state
         return x
 
-    return init, update, get_params
+    return OptimizerT(init=init, update=update, get_params=get_params)
 
 
 @optimizer
@@ -331,7 +330,7 @@ def adagrad(step_size, momentum=0.9):
         momentum: optional, a positive scalar value for momentum.
 
     Returns:
-        An (init_fun, update_fun, get_params) triple.
+        An (init, update, get_params) triple.
     """
     step_size = make_schedule(step_size)
 
@@ -352,7 +351,7 @@ def adagrad(step_size, momentum=0.9):
         x, _, _ = state
         return x
 
-    return init, update, get_params
+    return OptimizerT(init=init, update=update, get_params=get_params)
 
 
 @optimizer
@@ -368,7 +367,7 @@ def rmsprop(step_size, gamma=0.9, eps=1e-8):
       eps: Epsilon parameter.
 
     Returns:
-        An (init_fun, update_fun, get_params) triple.
+        An (init, update, get_params) triple.
     """
     step_size = make_schedule(step_size)
 
@@ -386,7 +385,7 @@ def rmsprop(step_size, gamma=0.9, eps=1e-8):
         x, _ = state
         return x
 
-    return init, update, get_params
+    return OptimizerT(init=init, update=update, get_params=get_params)
 
 
 @optimizer
@@ -407,7 +406,7 @@ def rmsprop_momentum(step_size, gamma=0.9, eps=1e-8, momentum=0.9):
         momentum: Momentum parameter.
 
     Returns:
-        An (init_fun, update_fun, get_params) triple.
+        An (init, update, get_params) triple.
     """
     step_size = make_schedule(step_size)
 
@@ -427,7 +426,7 @@ def rmsprop_momentum(step_size, gamma=0.9, eps=1e-8, momentum=0.9):
         x, _, _ = state
         return x
 
-    return init, update, get_params
+    return OptimizerT(init=init, update=update, get_params=get_params)
 
 
 @optimizer
@@ -448,7 +447,7 @@ def adam(step_size, b1=0.9, b2=0.999, eps=1e-8):
             (default 1e-8).
 
     Returns:
-        An (init_fun, update_fun, get_params) triple.
+        An (init, update, get_params) triple.
     """
     step_size = make_schedule(step_size)
 
@@ -470,7 +469,7 @@ def adam(step_size, b1=0.9, b2=0.999, eps=1e-8):
         x, _, _ = state
         return x
 
-    return init, update, get_params
+    return OptimizerT(init=init, update=update, get_params=get_params)
 
 
 @optimizer
@@ -491,7 +490,7 @@ def adamax(step_size, b1=0.9, b2=0.999, eps=1e-8):
             (default 1e-8).
 
     Returns:
-        An (init_fun, update_fun, get_params) triple.
+        An (init, update, get_params) triple.
     """
     step_size = make_schedule(step_size)
 
@@ -511,7 +510,7 @@ def adamax(step_size, b1=0.9, b2=0.999, eps=1e-8):
         x, _, _ = state
         return x
 
-    return init, update, get_params
+    return OptimizerT(init=init, update=update, get_params=get_params)
 
 
 @optimizer
@@ -528,7 +527,7 @@ def sm3(step_size, momentum=0.9):
         momentum: optional, a positive scalar value for momentum
 
     Returns:
-        An (init_fun, update_fun, get_params) triple.
+        An (init, update, get_params) triple.
     """
     step_size = make_schedule(step_size)
 
@@ -561,7 +560,7 @@ def sm3(step_size, momentum=0.9):
         x, _, _, x_shape = state
         return x.reshape(x_shape)
 
-    return init, update, get_params
+    return OptimizerT(init=init, update=update, get_params=get_params)
 
 
 ### learning rate schedules

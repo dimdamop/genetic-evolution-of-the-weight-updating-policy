@@ -83,10 +83,10 @@ def sample_element():
         img, mask = ellipse(img, hlen=np.random.random() / 2 + 0.1, ellipse_intensity=layer_val)
 
         if layer_idx == GT_LAYER_IDX:
-            retmask = mask
+            retmask = mask.astype(np.uint8)
 
     masked_img_mean = img[retmask].mean()
-    binary_tgt = (masked_img_mean < 196).astype(np.int32)
+    binary_tgt = (masked_img_mean < 128).astype(np.int32)
     regression_tgt = (masked_img_mean - img.mean()).astype(np.float32)
 
-    yield img, retmask, binary_tgt, regression_tgt
+    return img, retmask, binary_tgt, regression_tgt

@@ -16,15 +16,20 @@ Following the convention used in `Keras` and `tf.layers`, we use `CamelCase` for
 layer constructors, like `Conv` and `Relu`. For other functions, we follow the standard `snake_case`
 Python practice (eg.: `lax.conv` and `relu`).
 
-Each layer constructor function returns an `(init_fun, apply_fun)` pair, where:
+Each layer constructor function returns a pair of functions `init` and `apply`, where:
 
- * `init_fun`: takes an rng key and an input shape and returns an `(output_shape, params)` pair;
+ * `init`: takes an rng key and an input shape and returns an `(output_shape, params)` pair;
 
- * `apply_fun`: takes params, inputs, and an rng key and applies the layer.
+ * `apply`: takes params, inputs, and an rng key and applies the layer.
+
+For clarity, these two functions are returned as elements of a named tuple.
 """
 
+from collections import namedtuple
 import functools
 import operator as op
+import logging
+from typing import Sequence
 
 from jax import lax
 from jax import random
@@ -45,20 +50,23 @@ from jax.nn import (
 from jax.nn.initializers import glorot_normal, normal, ones, zeros
 
 
-def Dense(out_dim, W_init=glorot_normal(), b_init=normal()):
+LayerT = namedtuple("LayerT", ["init", "apply"])
+
+
+def Dense(out_dim, W_init=glorot_normal(), b_init=normal()) -> LayerT:
     """Layer constructor function for a dense (aka. fully-connected) layer."""
 
-    def init_fun(rng, input_shape):
+    def init(rng, input_shape):
         output_shape = input_shape[:-1] + (out_dim,)
         k1, k2 = random.split(rng)
         W, b = W_init(k1, (input_shape[-1], out_dim)), b_init(k2, (out_dim,))
         return output_shape, (W, b)
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         W, b = params
         return jnp.dot(inputs, W) + b
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
 
 
 def GeneralConv(
@@ -76,7 +84,7 @@ def GeneralConv(
     strides = strides or one
     W_init = W_init or glorot_normal(rhs_spec.index("I"), rhs_spec.index("O"))
 
-    def init_fun(rng, input_shape):
+    def init(rng, input_shape):
         filter_shape_iter = iter(filter_shape)
         kernel_shape = [
             out_chan
@@ -94,7 +102,7 @@ def GeneralConv(
         W, b = W_init(k1, kernel_shape), b_init(k2, bias_shape)
         return output_shape, (W, b)
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         W, b = params
         return (
             lax.conv_general_dilated(
@@ -103,7 +111,7 @@ def GeneralConv(
             + b
         )
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
 
 
 Conv = functools.partial(GeneralConv, ("NHWC", "HWIO", "NHWC"))
@@ -124,7 +132,7 @@ def GeneralConvTranspose(
     strides = strides or one
     W_init = W_init or glorot_normal(rhs_spec.index("I"), rhs_spec.index("O"))
 
-    def init_fun(rng, input_shape):
+    def init(rng, input_shape):
         filter_shape_iter = iter(filter_shape)
         kernel_shape = [
             out_chan
@@ -142,13 +150,13 @@ def GeneralConvTranspose(
         W, b = W_init(k1, kernel_shape), b_init(k2, bias_shape)
         return output_shape, (W, b)
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         W, b = params
         return (
             lax.conv_transpose(inputs, W, strides, padding, dimension_numbers=dimension_numbers) + b
         )
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
 
 
 Conv1DTranspose = functools.partial(GeneralConvTranspose, ("NHC", "HIO", "NHC"))
@@ -165,13 +173,13 @@ def BatchNorm(
     if jnp.isscalar(axis):
         axis = (axis,)
 
-    def init_fun(rng, input_shape):
+    def init(rng, input_shape):
         shape = tuple(d for i, d in enumerate(input_shape) if i not in axis)
         k1, k2 = random.split(rng)
         beta, gamma = _beta_init(k1, shape), _gamma_init(k2, shape)
         return input_shape, (beta, gamma)
 
-    def apply_fun(params, x, **kwargs):
+    def apply(params, x, **kwargs):
         """
         Args:
             params: beta, gamma
@@ -190,14 +198,14 @@ def BatchNorm(
             return gamma[ed] * z
         return z
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
 
 
 def elementwise(fun, **fun_kwargs):
     """Layer that applies a scalar function elementwise on its inputs."""
-    init_fun = lambda rng, input_shape: (input_shape, ())
-    apply_fun = lambda params, inputs, **kwargs: fun(inputs, **fun_kwargs)
-    return init_fun, apply_fun
+    init = lambda rng, input_shape: (input_shape, ())
+    apply = lambda params, inputs, **kwargs: fun(inputs, **fun_kwargs)
+    return LayerT(init=init, apply=apply)
 
 
 Tanh = elementwise(jnp.tanh)
@@ -228,7 +236,7 @@ def _pooling_layer(reducer, init_val, rescaler=None):
             window_shape = window_shape[:i] + (1,) + window_shape[i:]
             strides = strides[:i] + (1,) + strides[i:]
 
-        def init_fun(rng, input_shape):
+        def init(rng, input_shape):
             padding_vals = lax.padtype_to_pads(input_shape, window_shape, strides, padding)
             ones = (1,) * len(window_shape)
             out_shape = lax.reduce_window_shape_tuple(
@@ -236,11 +244,11 @@ def _pooling_layer(reducer, init_val, rescaler=None):
             )
             return out_shape, ()
 
-        def apply_fun(params, inputs, **kwargs):
+        def apply(params, inputs, **kwargs):
             out = lax.reduce_window(inputs, init_val, reducer, window_shape, strides, padding)
             return rescale(out, inputs, spec) if rescale else out
 
-        return init_fun, apply_fun
+        return LayerT(init=init, apply=apply)
 
     return PoolingLayer
 
@@ -275,14 +283,14 @@ AvgPool = _pooling_layer(lax.add, 0.0, _normalize_by_window_size)
 def Flatten():
     """Layer construction function for flattening all but the leading dim."""
 
-    def init_fun(rng, input_shape):
+    def init(rng, input_shape):
         output_shape = input_shape[0], functools.reduce(op.mul, input_shape[1:], 1)
         return output_shape, ()
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         return jnp.reshape(inputs, (inputs.shape[0], -1))
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
 
 
 Flatten = Flatten()
@@ -290,9 +298,9 @@ Flatten = Flatten()
 
 def Identity():
     """Layer construction function for an identity layer."""
-    init_fun = lambda rng, input_shape: (input_shape, ())
-    apply_fun = lambda params, inputs, **kwargs: inputs
-    return init_fun, apply_fun
+    init = lambda rng, input_shape: (input_shape, ())
+    apply = lambda params, inputs, **kwargs: inputs
+    return LayerT(init=init, apply=apply)
 
 
 Identity = Identity()
@@ -300,16 +308,16 @@ Identity = Identity()
 
 def FanOut(num):
     """Layer construction function for a fan-out layer."""
-    init_fun = lambda rng, input_shape: ([input_shape] * num, ())
-    apply_fun = lambda params, inputs, **kwargs: [inputs] * num
-    return init_fun, apply_fun
+    init = lambda rng, input_shape: ([input_shape] * num, ())
+    apply = lambda params, inputs, **kwargs: [inputs] * num
+    return LayerT(init=init, apply=apply)
 
 
 def FanInSum():
     """Layer construction function for a fan-in sum layer."""
-    init_fun = lambda rng, input_shape: (input_shape[0], ())
-    apply_fun = lambda params, inputs, **kwargs: sum(inputs)
-    return init_fun, apply_fun
+    init = lambda rng, input_shape: (input_shape[0], ())
+    apply = lambda params, inputs, **kwargs: sum(inputs)
+    return LayerT(init=init, apply=apply)
 
 
 FanInSum = FanInSum()
@@ -318,31 +326,30 @@ FanInSum = FanInSum()
 def FanInConcat(axis=-1):
     """Layer construction function for a fan-in concatenation layer."""
 
-    def init_fun(rng, input_shape):
+    def init(rng, input_shape):
         ax = axis % len(input_shape[0])
         concat_size = sum(shape[ax] for shape in input_shape)
         out_shape = input_shape[0][:ax] + (concat_size,) + input_shape[0][ax + 1 :]
         return out_shape, ()
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         return jnp.concatenate(inputs, axis)
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
 
 
 def Dropout(rate, mode="train"):
     """Layer construction function for a dropout layer with given rate."""
 
-    def init_fun(rng, input_shape):
+    def init(rng, input_shape):
         return input_shape, ()
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         if (rng := kwargs.get("rng", None)) is None:
             msg = (
-                "Dropout layer requires apply_fun to be called with a PRNG key "
-                "argument. That is, instead of `apply_fun(params, inputs)`, call "
-                "it like `apply_fun(params, inputs, rng)` where `rng` is a "
-                "jax.random.PRNGKey value."
+                "Dropout layer requires `apply` to be called with a PRNG key argument. That is, "
+                "instead of `apply(params, inputs)`, call it like `apply(params, inputs, rng)` "
+                "where `rng` is a jax.random.PRNGKey value."
             )
             raise ValueError(msg)
         if mode == "train":
@@ -351,71 +358,75 @@ def Dropout(rate, mode="train"):
         else:
             return inputs
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
 
 
 # Composing layers via combinators
 
 
-def serial(*layers):
+def serial(*layers: Sequence[LayerT], verbose: bool = False):
     """Combinator for composing layers in serial.
 
     Args:
-      *layers: a sequence of layers, each an (init_fun, apply_fun) pair.
+      *layers: a sequence of `LayerT` objects.
 
     Returns:
-      A new layer, meaning an (init_fun, apply_fun) pair, representing the serial
-      composition of the given sequence of layers.
+      A new `LayerT` object, representing the serial composition of the given sequence of layers.
     """
-    nlayers = len(layers)
-    init_funs, apply_funs = zip(*layers)
 
-    def init_fun(rng, input_shape):
+    nlayers = len(layers)
+
+    def init(rng, input_shape):
         params = []
-        for init_fun in init_funs:
+
+        if verbose:
+            logging.info("Starting with input shape: %s", str(input_shape))
+
+        for lidx, layer in enumerate(layers):
             rng, layer_rng = random.split(rng)
-            input_shape, param = init_fun(layer_rng, input_shape)
+            input_shape, param = layer.init(layer_rng, input_shape)
             params.append(param)
+            if verbose:
+                logging.info("Output shape in layer %d/%d: %s", lidx + 1, nlayers, str(input_shape))
+
         return input_shape, params
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         rng = kwargs.pop("rng", None)
         rngs = random.split(rng, nlayers) if rng is not None else (None,) * nlayers
-        for fun, param, rng in zip(apply_funs, params, rngs):
-            inputs = fun(param, inputs, rng=rng, **kwargs)
+        for layer, param, rng in zip(layers, params, rngs):
+            inputs = layer.apply(param, inputs, rng=rng, **kwargs)
         return inputs
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
 
 
-def parallel(*layers):
+def parallel(*layers: Sequence[LayerT]):
     """Combinator for composing layers in parallel.
 
     The layer resulting from this combinator is often used with the FanOut and
     FanInSum layers.
 
     Args:
-      *layers: a sequence of layers, each an (init_fun, apply_fun) pair.
+      *layers: a sequence of `LayerT` objexts.
 
     Returns:
-      A new layer, meaning an (init_fun, apply_fun) pair, representing the
-      parallel composition of the given sequence of layers. In particular, the
-      returned layer takes a sequence of inputs and returns a sequence of outputs
+      A `LayerT` object representing the parallel composition of the given sequence of layers. In
+      particular, the returned layer takes a sequence of inputs and returns a sequence of outputs
       with the same length as the argument `layers`.
     """
     nlayers = len(layers)
-    init_funs, apply_funs = zip(*layers)
 
-    def init_fun(rng, input_shape):
+    def init(rng, input_shape):
         rngs = random.split(rng, nlayers)
-        return zip(*[init(rng, shape) for init, rng, shape in zip(init_funs, rngs, input_shape)])
+        return zip(*[l.init(rng, shape) for l, rng, shape in zip(layers, rngs, input_shape)])
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         rng = kwargs.pop("rng", None)
         rngs = random.split(rng, nlayers) if rng is not None else (None,) * nlayers
-        return [f(p, x, rng=r, **kwargs) for f, p, x, r in zip(apply_funs, params, inputs, rngs)]
+        return [l.apply(p, x, rng=r, **kwargs) for l, p, x, r in zip(layers, params, inputs, rngs)]
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
 
 
 def shape_dependent(make_layer):
@@ -423,18 +434,17 @@ def shape_dependent(make_layer):
 
     Args:
       make_layer: a one-argument function that takes an input shape as an argument
-        (a tuple of positive integers) and returns an (init_fun, apply_fun) pair.
+        (a tuple of positive integers) and returns `LayerT` object.
 
     Returns:
-      A new layer, meaning an (init_fun, apply_fun) pair, representing the same
-      layer as returned by `make_layer` but with its construction delayed until
-      input shapes are known.
+      A `LayerT` object representing the same layer as returned by `make_layer` but with its
+      construction delayed until input shapes are known.
     """
 
-    def init_fun(rng, input_shape):
+    def init(rng, input_shape):
         return make_layer(input_shape)[0](rng, input_shape)
 
-    def apply_fun(params, inputs, **kwargs):
+    def apply(params, inputs, **kwargs):
         return make_layer(inputs.shape)[1](params, inputs, **kwargs)
 
-    return init_fun, apply_fun
+    return LayerT(init=init, apply=apply)
