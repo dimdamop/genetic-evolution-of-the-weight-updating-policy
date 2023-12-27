@@ -1,12 +1,12 @@
 # Summary
 
-What if the update of the weights of the network is not proportional to the respective gradients?
+What if the update of the weights of the network is not based on gradients?
 
 This repository explores this question in the context of reinforcement learning (RL). The main
 ideas are the following:
 
 1. We use vanilla RL learning frameworks (PPO, Q-Learning, etc).
-2. We conduct tournaments of competing learnt models, each lasting a predefined number of epochs.
+2. We conduct tournaments of competing learnt models, each allocated a predefined time budget.
 3. Each learnt model has its own rules for the forward passes (inference and gradient computation)
    of its neurons.
 5. These model-specific rules are mutations of those of the winners of the previous tournament.
