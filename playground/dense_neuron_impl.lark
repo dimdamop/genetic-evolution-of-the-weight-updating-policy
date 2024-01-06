@@ -1,0 +1,142 @@
+adjective : "aesthetic" -> aesthetic
+    | "barbaric" -> barbaric
+    | "clumpsy" -> clumpsy
+    | "daedalian" -> daedalian
+    | "ephemeral" -> ephemeral
+    | "furious" -> furious 
+    | "grumpy" -> grumpy
+    | "hilarious" -> hilarious
+    | "illustrative" -> illustrative
+    | "juveline" -> juveline
+    | "kinetic" -> kinetic
+    | "low" -> low
+    | "melancholic" -> melancholic
+    | "new" -> new
+    | "old" -> old
+    | "precious" -> precious
+    | "quixotic" -> quixotic
+    | "rational" -> rational
+    | "superstitious" -> superstitious
+    | "tremendous" -> tremendous
+    | "unusual" -> unusual
+    | "vicious" -> vicious
+    | "wooden" -> wooden
+    | "xanthous" -> xanthous
+    | "yellow" -> yellow
+    | "zymotic" -> zymotic
+    | adjective grammar_and adjective
+
+grammar_and : "_and_"
+
+noun : "archer" -> archer
+    | "banjo" -> banjo
+    | "crater" -> crater
+    | "dragon" -> dragon
+    | "elephant" -> elephant
+    | "flame" -> flame
+    | "growl" -> growl
+    | "hiccup" -> hiccup
+    | "igloo" -> igloo
+    | "juggler" -> juggler
+    | "knife" -> knife
+    | "lavta" -> lavta
+    | "mark" -> mark
+    | "noon" -> noon
+    | "ostrich" -> ostrich
+    | "pharao" -> pharao
+    | "quokka" -> quokka
+    | "rubber" -> rubber
+    | "stream" -> stream
+    | "tree" -> tree
+    | "ukulele" -> ukulele
+    | "velociraptor" -> velociraptor
+    | "warrior" -> warrior
+    | "xylophone" -> xylophone
+    | "yamnana" -> yamnana
+    | "zealot" -> zealot
+
+INV_KW : "1 / "
+NOT_KW : "not "
+SQR_KW : "**2"
+SQRT_KW : "**.5"
+AND_KW : " and "
+OR_KW : " or "
+ADD_KW : " + "
+MINUS_KW : " - "
+MUL_KW : " * "
+DIV_KW : " * "
+MIN_KW : "- "
+EQ_KW : " == "
+GR_KW : " > "
+LE_KW : " < "
+ZERO : "0"
+ONE : "1"
+TWO : "2"
+B : "b"
+DEPTH : "depth"
+S0 : "s0"
+S1 : "s1"
+W_VEC : "W"
+INPUTS : "inputs"
+
+sep : "_"
+plural : "s"
+is: "is"
+tab : "    " 
+nl : "\n"
+lpar : "("
+rpar : ")"
+comma: ", "
+assign_kw : " = "
+ret : "return "
+if : " if "
+else : " else "
+dot : "jnp.dot"
+mean : "jnp.mean"
+
+b2b_op  : NOT_KW 
+bb2b_op : AND_KW | OR_KW 
+ss2s_op : ADD_KW | MINUS_KW | MUL_KW | DIV_KW 
+s2s_op : MIN_KW | INV_KW | SQR_KW | SQRT_KW
+ss2b_op : GR_KW | EQ_KW | LE_KW 
+vv2v_op : ADD_KW | MINUS_KW 
+sv2v_op : ADD_KW | MINUS_KW | MUL_KW 
+
+sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1
+vconst : W_VEC | INPUTS
+
+b_varname : is sep noun sep adjective
+s_varname : adjective sep noun
+v_varname : s_varname plural
+
+b_expr : b2b_op b_expr      -> b2b_expr
+    | b_expr bb2b_op b_expr -> bb2b_expr
+    | lpar b_expr rpar      -> bpar_expr
+    | s_expr ss2b_op s_expr -> ss2b_expr
+    | b_varname             -> b_var_expr
+
+s_expr : s2s_op s_expr                  -> s2s_expr
+    | s_expr ss2s_op s_expr             -> ss2s_expr
+    | lpar s_expr rpar                  -> s_par_expr
+    | dot lpar v_expr comma v_expr rpar -> vprod_expr
+    | mean lpar v_expr rpar             -> vmean_expr
+    | sconst                            -> s_const_expr
+    | s_expr if b_expr else s_expr      -> s_ifelse
+    | s_varname                         -> s_var_expr
+
+v_expr : s_expr sv2v_op v_expr      -> sv2v_expr
+    | v_expr vv2v_op v_expr         -> vv2v_expr
+    | vconst                        -> v_const_expr
+    | v_expr if b_expr else v_expr  -> v_ifelse
+    | v_varname                     -> b_var_expr
+
+b_assign : b_varname assign_kw  b_expr
+s_assign : s_varname assign_kw  s_expr
+v_assign : v_varname assign_kw  v_expr
+assign : b_assign | s_assign | v_assign
+indented_assign : tab assign nl
+indented_ret : tab ret s_expr nl
+IMPORTS : "import jax.numpy as jnp\n\n\n"
+HEADER : "def dense_apply(params, inputs):\n"
+PARAMS_UNPACKING : "    W, b, depth, s0, s1 = params\n"
+start : IMPORTS HEADER PARAMS_UNPACKING indented_assign* indented_ret

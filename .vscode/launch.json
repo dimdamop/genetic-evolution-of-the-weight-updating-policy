@@ -1,0 +1,23 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "develop cloning",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "args": [
+                "--src-impl-path", "${workspaceFolder}/playground/example_dense_neuron.py",
+                "--dst-impl-path", "${workspaceFolder}/playground/cloned_example_dense_neuron.py",
+                "--mutation-rate", ".001",
+                "--cloning-iters", "100",
+                "--random-seed", "3432"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        }
+    ]
+}

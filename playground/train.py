@@ -6,7 +6,7 @@ from jax import random
 import time
 import tensorflow as tf
 from environment.ds_iter import batch_iterator
-from learning.stax import Conv, Dense, MaxPool, Relu, Flatten, LogSoftmax, serial
+from learning.stax import Conv, Dense, MaxPool, Relu, Flatten, LogSoftmax, serial, BatchNorm
 from learning.optimizers import sgd, OptimizerT
 from learning.optimizers import constant as constant_sched
 
@@ -14,27 +14,39 @@ from learning.optimizers import constant as constant_sched
 def model():
     return serial(
         Conv(32, (3, 3), padding="SAME"),
+        BatchNorm((0, 1)),
         Relu,
         Conv(64, (3, 3), padding="SAME"),
+        BatchNorm((0, 1)),
         Relu,
         MaxPool((2, 2)),
         Conv(32, (3, 3), padding="SAME"),
+        BatchNorm((0, 1)),
         Relu,
         Conv(64, (3, 3), padding="SAME"),
+        BatchNorm((0, 1)),
         Relu,
         MaxPool((2, 2)),
         Conv(32, (3, 3), padding="SAME"),
+        BatchNorm((0, 1)),
         Relu,
         Conv(64, (3, 3), padding="SAME"),
+        BatchNorm((0, 1)),
         Relu,
         MaxPool((2, 2)),
         Conv(32, (3, 3), padding="SAME"),
+        BatchNorm((0, 1)),
         Relu,
         Conv(64, (3, 3), padding="SAME"),
+        BatchNorm((0, 1)),
         Relu,
         MaxPool((12, 12)),
         Flatten,
-        Dense(128),
+        Dense(32),
+        BatchNorm((0, 1)),
+        Relu,
+        Dense(32),
+        BatchNorm((0, 1)),
         Relu,
         Dense(2),
         LogSoftmax,
