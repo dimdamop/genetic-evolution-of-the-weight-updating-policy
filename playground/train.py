@@ -1,4 +1,3 @@
-from functools import partial
 import logging
 import jax.numpy as jnp
 from jax import grad, jit
@@ -55,7 +54,7 @@ def model():
 
 def main():
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
     rng = random.PRNGKey(0)
 

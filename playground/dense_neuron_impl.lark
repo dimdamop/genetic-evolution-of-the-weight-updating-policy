@@ -78,6 +78,7 @@ S0 : "s0"
 S1 : "s1"
 W_VEC : "W"
 INPUTS : "inputs"
+IS_S0_ABOVE_S1 : "s0 > s1"
 
 sep : "_"
 plural : "s"
@@ -97,11 +98,13 @@ mean : "jnp.mean"
 b2b_op  : NOT_KW 
 bb2b_op : AND_KW | OR_KW 
 ss2s_op : ADD_KW | MINUS_KW | MUL_KW | DIV_KW 
-s2s_op : MIN_KW | INV_KW | SQR_KW | SQRT_KW
+s2s_op : MIN_KW | INV_KW
+after_s2s_op : SQR_KW | SQRT_KW
 ss2b_op : GR_KW | EQ_KW | LE_KW 
 vv2v_op : ADD_KW | MINUS_KW 
 sv2v_op : ADD_KW | MINUS_KW | MUL_KW 
 
+bconst : IS_S0_ABOVE_S1
 sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1
 vconst : W_VEC | INPUTS
 
@@ -111,24 +114,26 @@ v_varname : s_varname plural
 
 b_expr : b2b_op b_expr      -> b2b_expr
     | b_expr bb2b_op b_expr -> bb2b_expr
-    | lpar b_expr rpar      -> bpar_expr
+    | lpar b_expr rpar      -> b_par_expr
     | s_expr ss2b_op s_expr -> ss2b_expr
     | b_varname             -> b_var_expr
+    | bconst                -> b_const_expr
 
 s_expr : s2s_op s_expr                  -> s2s_expr
+    | s_expr after_s2s_op               -> after_s2s_expr
     | s_expr ss2s_op s_expr             -> ss2s_expr
     | lpar s_expr rpar                  -> s_par_expr
     | dot lpar v_expr comma v_expr rpar -> vprod_expr
     | mean lpar v_expr rpar             -> vmean_expr
     | sconst                            -> s_const_expr
-    | s_expr if b_expr else s_expr      -> s_ifelse
+    | s_expr if b_expr else s_expr      -> s_ifelse_expr
     | s_varname                         -> s_var_expr
 
 v_expr : s_expr sv2v_op v_expr      -> sv2v_expr
     | v_expr vv2v_op v_expr         -> vv2v_expr
     | vconst                        -> v_const_expr
-    | v_expr if b_expr else v_expr  -> v_ifelse
-    | v_varname                     -> b_var_expr
+    | v_expr if b_expr else v_expr  -> v_ifelse_expr
+    | v_varname                     -> v_var_expr
 
 b_assign : b_varname assign_kw  b_expr
 s_assign : s_varname assign_kw  s_expr
@@ -139,4 +144,5 @@ indented_ret : tab ret s_expr nl
 IMPORTS : "import jax.numpy as jnp\n\n\n"
 HEADER : "def dense_apply(params, inputs):\n"
 PARAMS_UNPACKING : "    W, b, depth, s0, s1 = params\n"
-start : IMPORTS HEADER PARAMS_UNPACKING indented_assign* indented_ret
+BOOLEAN_VAR : "    is_s0_above_s1 = s0 > s1\n"
+start : IMPORTS HEADER PARAMS_UNPACKING BOOLEAN_VAR indented_assign* indented_ret

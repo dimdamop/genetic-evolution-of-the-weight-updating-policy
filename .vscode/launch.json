@@ -12,12 +12,12 @@
             "args": [
                 "--src-impl-path", "${workspaceFolder}/playground/example_dense_neuron.py",
                 "--dst-impl-path", "${workspaceFolder}/playground/cloned_example_dense_neuron.py",
-                "--mutation-rate", ".001",
-                "--cloning-iters", "100",
+                "--mutation-rate", "0.001",
+                "--new-expr-pull-factor", "0.05",
                 "--random-seed", "3432"
             ],
             "console": "integratedTerminal",
-            "justMyCode": false
+            "justMyCode": true
         }
     ]
 }
