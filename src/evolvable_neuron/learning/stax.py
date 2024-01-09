@@ -25,30 +25,27 @@ Each layer constructor function returns a pair of functions `init` and `apply`, 
 For clarity, these two functions are returned as elements of a named tuple.
 """
 
-from collections import namedtuple
 import functools
-import operator as op
 import logging
+import operator as op
+from collections import namedtuple
 from typing import Sequence
 
-from jax import lax
-from jax import random
 import jax.numpy as jnp
-
+from jax import lax, random
 from jax.nn import (
-    relu,
+    elu,
+    gelu,
+    leaky_relu,
     log_softmax,
+    relu,
+    selu,
+    sigmoid,
     softmax,
     softplus,
-    sigmoid,
-    elu,
-    leaky_relu,
-    selu,
-    gelu,
     standardize,
 )
 from jax.nn.initializers import glorot_normal, normal, ones, zeros
-
 
 LayerT = namedtuple("LayerT", ["init", "apply"])
 

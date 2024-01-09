@@ -86,16 +86,15 @@ Example Usage:
 .. _Optax: https://github.com/deepmind/optax
 """
 
+import functools
+from collections import namedtuple
+from functools import partial
 from typing import Any, Callable, NamedTuple, Union
 
-from collections import namedtuple
-import functools
-from functools import partial
-
 import jax.numpy as jnp
-from jax._src.util import safe_zip, safe_map, unzip2
 from jax import tree_util
-from jax.tree_util import tree_map, tree_flatten, tree_unflatten, register_pytree_node
+from jax._src.util import safe_map, safe_zip, unzip2
+from jax.tree_util import register_pytree_node, tree_flatten, tree_map, tree_unflatten
 
 map = safe_map
 zip = safe_zip
@@ -219,9 +218,6 @@ def optimizer(
         return OptimizerT(init=tree_init, update=tree_update, get_params=tree_get_params)
 
     return tree_opt_maker
-
-
-### optimizers
 
 
 @optimizer
@@ -563,9 +559,6 @@ def sm3(step_size, momentum=0.9):
     return OptimizerT(init=init, update=update, get_params=get_params)
 
 
-### learning rate schedules
-
-
 def constant(step_size) -> Schedule:
     def schedule(i):
         return step_size
@@ -625,9 +618,6 @@ def make_schedule(scalar_or_schedule: Union[float, Schedule]) -> Schedule:
     raise TypeError(type(scalar_or_schedule))
 
 
-### utilities
-
-
 def l2_norm(tree):
     """Compute the l2 norm of a pytree of arrays. Useful for weight decay."""
     leaves, _ = tree_flatten(tree)
@@ -639,9 +629,6 @@ def clip_grads(grad_tree, max_norm):
     norm = l2_norm(grad_tree)
     normalize = lambda g: jnp.where(norm < max_norm, g, g * (max_norm / norm))
     return tree_map(normalize, grad_tree)
-
-
-### serialization utilities
 
 
 class JoinPoint:

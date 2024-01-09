@@ -1,0 +1,54 @@
+[project]
+name = "evolvable-neuron"
+
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+]
+
+authors = [
+  {name = "Dimitrios Damopoulos", email = "dimdamop@hotmail.com"},
+]
+
+maintainers = [
+  {name = "Dimitrios Damopoulos", email = "dimdamop@hotmail.com"},
+]
+
+description = "Experiments for the paper blah blah blah"
+readme = "README.md"
+
+dynamic = ["version"]
+dependencies = [
+    "numpy==1.24.3",
+    "lark==1.1.8",
+    "tensorflow==2.13",
+    "jax==0.4.20",
+]
+requires-python = "== 3.11.6"
+
+[tool.setuptools.dynamic]
+version = {attr = "evolvable_neuron.__version__"}
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "flake8",
+]
+
+[project.scripts]
+evln-train-classifier = "evolvable_neuron.apps.train:main"
+evln-neuron-clone = "evolvable_neuron.apps.dense_impl_cloner:main"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.isort]
+multi_line_output = 3
+line_length = 100
+include_trailing_comma = true
+
+[tool.flake8]
+max-line-length = 100
+

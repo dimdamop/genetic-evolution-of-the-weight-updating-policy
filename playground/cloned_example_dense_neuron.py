@@ -9,4 +9,8 @@ def dense_apply(params, inputs):
     grumpy_archers = b + W
     hilarious_and_barbaric_zealots = b + 2 * W
     low_growl = 1 / b + s1 * (jnp.dot(W, inputs) + b)
-    return jnp.dot(inputs + hilarious_and_barbaric_zealots, grumpy_archers) + jnp.dot(inputs, grumpy_archers) + low_growl
+    return (
+        jnp.dot(inputs + hilarious_and_barbaric_zealots, grumpy_archers)
+        + jnp.dot(inputs, grumpy_archers)
+        + low_growl
+    )

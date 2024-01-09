@@ -144,5 +144,4 @@ indented_ret : tab ret s_expr nl
 IMPORTS : "import jax.numpy as jnp\n\n\n"
 HEADER : "def dense_apply(params, inputs):\n"
 PARAMS_UNPACKING : "    W, b, depth, s0, s1 = params\n"
-BOOLEAN_VAR : "    is_s0_above_s1 = s0 > s1\n"
-start : IMPORTS HEADER PARAMS_UNPACKING BOOLEAN_VAR indented_assign* indented_ret
+start : IMPORTS HEADER PARAMS_UNPACKING indented_assign* indented_ret

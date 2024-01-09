@@ -1,13 +1,23 @@
 import logging
-import jax.numpy as jnp
-from jax import grad, jit
-from jax import random
 import time
+
+import jax.numpy as jnp
 import tensorflow as tf
-from environment.ds_iter import batch_iterator
-from learning.stax import Conv, Dense, MaxPool, Relu, Flatten, LogSoftmax, serial, BatchNorm
-from learning.optimizers import sgd, OptimizerT
-from learning.optimizers import constant as constant_sched
+from jax import grad, jit, random
+
+from evolvable_neuron.env.supervised_autogen import batch_iterator
+from evolvable_neuron.learning.optimizers import constant as constant_sched
+from evolvable_neuron.learning.optimizers import sgd
+from evolvable_neuron.learning.stax import (
+    BatchNorm,
+    Conv,
+    Dense,
+    Flatten,
+    LogSoftmax,
+    MaxPool,
+    Relu,
+    serial,
+)
 
 
 def model():
@@ -53,7 +63,6 @@ def model():
 
 
 def main():
-
     logging.basicConfig(level=logging.DEBUG)
 
     rng = random.PRNGKey(0)
@@ -98,7 +107,6 @@ def main():
     started_at = time.time()
 
     for opt_iter, batch in enumerate(ds_gen):
-
         if opt_iter == max_opt_iters:
             break
 

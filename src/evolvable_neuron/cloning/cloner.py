@@ -1,52 +1,11 @@
-from argparse import ArgumentParser, Namespace
-from pathlib import Path
-import logging
-from logging import info, debug
-from sys import stdout
+from logging import debug
+
 import numpy as np
-from lark import Lark, Tree, Visitor, Token, Transformer
+from lark import Token, Transformer, Tree
 from lark.load_grammar import Grammar
 
 
-class ToPython(Visitor):
-    Mapper = {
-        "nl": "\n",
-        "tab": "    ",
-        "sep": "_",
-        "assign_kw": " = ",
-        "lpar": "(",
-        "rpar": ")",
-        "dot": "jnp.dot",
-        "mean": "jnp.mean",
-        "comma": ", ",
-        "ret": "return ",
-        "if": " if ",
-        "else": " else ",
-        "plural": "s",
-        "grammar_and": "_and_",
-    }
-
-    def __init__(self, stream=stdout, *args, **kwargs):
-        self.stream = stream
-        super().__init__(*args, **kwargs)
-
-    def __default__(self, tree):
-
-        if len(tree.children) == 0:
-            self.stream.write(ToPython.Mapper.get(tree.data, tree.data))
-            return
-
-        if all(isinstance(child, Token) for child in tree.children):
-            for child in tree.children:
-                self.stream.write(str(child))
-
-    def start(self, tree):
-        for child in tree.children[:4]:
-            self.stream.write(str(child))
-
-
 class Cloner(Transformer):
-
     class NoVariable(Exception):
         pass
 
@@ -84,12 +43,11 @@ class Cloner(Transformer):
         self.num_mutated_original_exprs = 0
 
     def __default__(self, data, children, meta):
-
         def _possibly_mutate() -> Tree | None:
             for expr_type, options in self.expr_options.items():
                 if data in options:
                     if self.rng.random() < self.mutation_rate:
-                        debug("Mutating..")
+                        debug("Mutating...")
                         self._curr_expr_max_depth = 0
                         expr = self.new_expr(expr_type)
                         debug("The new expression has a depth of %s", self._curr_expr_max_depth)
@@ -122,7 +80,6 @@ class Cloner(Transformer):
         return Tree(Token("RULE", "nl"), [])
 
     def new_expr(self, expr_type) -> Tree:
-
         self._curr_expr_curr_depth += 1
 
         if self._curr_expr_max_depth < self._curr_expr_curr_depth:
@@ -132,7 +89,8 @@ class Cloner(Transformer):
 
         if self.rng.random() > np.exp(-self.new_expr_pull_factor * self._curr_expr_max_depth):
             expr_options = [
-                opt for opt in expr_options
+                opt
+                for opt in expr_options
                 if opt.endswith("_const_expr") or opt.endswith("_var_expr")
             ]
 
@@ -155,7 +113,7 @@ class Cloner(Transformer):
         # b2b_op b_expr -> b2b_expr
 
         op_tree = Tree(Token("NOT_KW", "not "), [])
-    
+
         while True:
             embedded_expr = self.new_expr("b_expr")
             if self.allow_all or embedded_expr.data != "b2b_expr":
@@ -175,7 +133,7 @@ class Cloner(Transformer):
                 self.new_expr("b_expr"),
                 Tree(Token("RULE", "bb2b_op"), [Token(op_name, op_str.strip('"'))]),
                 self.new_expr("b_expr"),
-            ] 
+            ],
         )
 
     def new_b_par_expr(self) -> Tree:
@@ -192,6 +150,9 @@ class Cloner(Transformer):
             if isinstance(embedded_expr.data, Token) and embedded_expr.data.value == "b_varname":
                 continue
 
+            if embedded_expr.data == "b_const_expr":
+                continue
+
             break
 
         return Tree(
@@ -200,7 +161,7 @@ class Cloner(Transformer):
                 Tree(Token("RULE", "lpar"), []),
                 embedded_expr,
                 Tree(Token("RULE", "rpar"), []),
-            ]
+            ],
         )
 
     def new_ss2b_expr(self) -> Tree:
@@ -210,13 +171,14 @@ class Cloner(Transformer):
         op_name = op.children[0].children[0].name
         op_str = self.terms[op_name].children[0].children[0].children[0].children[0].value
         op_tree = Tree(Token("RULE", "ss2b_op"), [Token(op_name, op_str.strip('"'))])
+        static_consts = "0", "1", "2"
 
         while True:
             left_expr = self.new_expr("s_expr")
             right_expr = self.new_expr("s_expr")
 
             is_statically_known = [
-                expr.data == "s_const_expr" and expr.children[0].children[0].value in ("0", "1", "2")
+                expr.data == "s_const_expr" and expr.children[0].children[0].value in static_consts
                 for expr in (left_expr, right_expr)
             ]
 
@@ -232,7 +194,7 @@ class Cloner(Transformer):
         if not len(self._assigned_varnames["b_assign"]):
             raise Cloner.NoVariable()
 
-        var = self.rng.choice(self._assigned_varnames['b_assign']).tolist()
+        var = self.rng.choice(self._assigned_varnames["b_assign"]).tolist()
         return Tree(data=Token("RULE", "b_varname"), children=var)
 
     def new_b_const_expr(self) -> Tree:
@@ -248,7 +210,7 @@ class Cloner(Transformer):
         op = self.rng.choice(self.rules["s2s_op"].children)
         op_name = op.children[0].children[0].name
         op_str = self.terms[op_name].children[0].children[0].children[0].children[0].value
-        op_tree = Tree(Token("RULE", "s2s_op"), [Token(op_name, op_str.strip('"'))]),
+        op_tree = (Tree(Token("RULE", "s2s_op"), [Token(op_name, op_str.strip('"'))]),)
 
         while True:
             embedded_expr = self.new_expr("s_expr")
@@ -261,8 +223,7 @@ class Cloner(Transformer):
             ):
                 break
 
-        return Tree(data="s2s_expr", children=[op_tree, embedded_expr]) 
-
+        return Tree(data="s2s_expr", children=[op_tree, embedded_expr])
 
     def new_after_s2s_expr(self) -> Tree:
         # s_expr after_s2s_op -> after_s2s_expr
@@ -275,7 +236,7 @@ class Cloner(Transformer):
             children=[
                 self.new_expr("s_expr"),
                 Tree(Token("RULE", "after_s2s_op"), [Token(op_name, op_str.strip('"'))]),
-            ] 
+            ],
         )
 
     def new_ss2s_expr(self) -> Tree:
@@ -285,6 +246,7 @@ class Cloner(Transformer):
         op_name = op.children[0].children[0].name
         op_str = self.terms[op_name].children[0].children[0].children[0].children[0].value
         op_tree = Tree(Token("RULE", "ss2s_op"), [Token(op_name, op_str.strip('"'))])
+        static_consts = "0", "1", "2"
 
         while True:
             left_expr = self.new_expr("s_expr")
@@ -294,7 +256,7 @@ class Cloner(Transformer):
                 break
 
             is_statically_known = [
-                expr.data == "s_const_expr" and expr.children[0].children[0].value in ("0", "1", "2")
+                expr.data == "s_const_expr" and expr.children[0].children[0].value in static_consts
                 for expr in (left_expr, right_expr)
             ]
 
@@ -336,10 +298,7 @@ class Cloner(Transformer):
             if isinstance(embedded_expr.data, Token) and embedded_expr.data.value == "s_varname":
                 continue
 
-            if (
-                embedded_expr.data == "s_const_expr"
-                and embedded_expr.children[0].children[0].value in ("0", "1", "2")
-            ):
+            if embedded_expr.data == "s_const_expr":
                 continue
 
             break
@@ -350,7 +309,7 @@ class Cloner(Transformer):
                 Tree(Token("RULE", "lpar"), []),
                 embedded_expr,
                 Tree(Token("RULE", "rpar"), []),
-            ]
+            ],
         )
 
     def new_vprod_expr(self) -> Tree:
@@ -365,11 +324,10 @@ class Cloner(Transformer):
                 Tree(Token("RULE", "comma"), []),
                 self.new_expr("v_expr"),
                 Tree(Token("RULE", "rpar"), []),
-            ]
+            ],
         )
 
     def new_vmean_expr(self) -> Tree:
-
         return Tree(
             data="vmean_expr",
             children=[
@@ -377,7 +335,7 @@ class Cloner(Transformer):
                 Tree(Token("RULE", "lpar"), []),
                 self.new_expr("v_expr"),
                 Tree(Token("RULE", "rpar"), []),
-            ]
+            ],
         )
 
     def new_s_const_expr(self) -> Tree:
@@ -404,7 +362,7 @@ class Cloner(Transformer):
                 self.new_expr("b_expr"),
                 Tree(Token("RULE", "else"), []),
                 self.new_expr("s_expr"),
-            ] 
+            ],
         )
 
     def new_s_var_expr(self) -> Tree:
@@ -414,7 +372,7 @@ class Cloner(Transformer):
         if not len(self._assigned_varnames["s_assign"]):
             raise Cloner.NoVariable()
 
-        var = self.rng.choice(self._assigned_varnames['s_assign']).tolist()
+        var = self.rng.choice(self._assigned_varnames["s_assign"]).tolist()
         return Tree(data=Token("RULE", "s_varname"), children=var)
 
     def new_sv2v_expr(self) -> Tree:
@@ -458,7 +416,7 @@ class Cloner(Transformer):
                 self.new_expr("v_expr"),
                 Tree(Token("RULE", "vv2v_op"), [Token(op_name, op_str.strip('"'))]),
                 self.new_expr("v_expr"),
-            ] 
+            ],
         )
 
     def new_v_const_expr(self) -> Tree:
@@ -485,7 +443,7 @@ class Cloner(Transformer):
                 self.new_expr("b_expr"),
                 Tree(Token("RULE", "else"), []),
                 self.new_expr("v_expr"),
-            ] 
+            ],
         )
 
     def new_v_var_expr(self) -> Tree:
@@ -495,61 +453,5 @@ class Cloner(Transformer):
         if not len(self._assigned_varnames["v_assign"]):
             raise Cloner.NoVariable()
 
-        var = self.rng.choice(self._assigned_varnames['v_assign']).tolist()
+        var = self.rng.choice(self._assigned_varnames["v_assign"]).tolist()
         return Tree(data=Token("RULE", "v_varname"), children=var)
-
-
-def get_args() -> Namespace:
-    argparser = ArgumentParser()
-    argparser.add_argument("--src-impl-path")
-    argparser.add_argument("--dst-impl-path")
-    argparser.add_argument("--mutation-rate", type=float)
-    argparser.add_argument("--min-cloning-iters", type=int)
-    argparser.add_argument("--new-expr-pull-factor", type=float)
-    argparser.add_argument("--random-seed", type=int)
-
-    args = argparser.parse_args()
-    args.min_cloning_iters = args.min_cloning_iters or 1
-    args.mutation_rate = args.mutation_rate or 0
-    return args
-
-
-def main():
-
-    args = get_args()
-    parser = Lark.open(Path(__file__).parent / "dense_neuron_impl.lark")
-
-    with open(args.src_impl_path) as stream:
-        info("I 'll parse %s according to the %s grammar", args.src_impl_path, parser.source_path)
-        tree = parser.parse(stream.read())
-
-    cloner = Cloner(
-        grammar=parser.grammar,
-        mutation_rate=args.mutation_rate,
-        new_expr_pull_factor=args.new_expr_pull_factor,
-        seed=args.random_seed,
-    )
-
-    info(
-        "I 'll clone with a mutation rate of %f. Seed is %s and the pull factor is %f",
-        cloner.mutation_rate, args.random_seed, cloner.new_expr_pull_factor,
-    )
-
-    cloning_iter = 1
-    is_mutated = False
-
-    while not is_mutated or cloning_iter <= args.min_cloning_iters:
-        info("Cloning iteration %d", cloning_iter)
-        cloner.reset()
-        tree = cloner.transform(tree)
-        is_mutated = is_mutated or cloner.num_mutated_original_exprs > 0
-        cloning_iter += 1
-    
-    with open(args.dst_impl_path, "w") if args.dst_impl_path else None as stream:
-        info("I 'll dump the transformed tree to %s", args.dst_impl_path)
-        ToPython(stream=stream).visit_topdown(tree)
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-    main()

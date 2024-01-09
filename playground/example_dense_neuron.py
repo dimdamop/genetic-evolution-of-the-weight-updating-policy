@@ -3,7 +3,6 @@ import jax.numpy as jnp
 
 def dense_apply(params, inputs):
     W, b, depth, s0, s1 = params
-    is_s0_above_s1 = s0 > s1
     is_tree_melancholic = jnp.mean(inputs) > 1
     tremendous_hiccup = s1 + b if s0 > 0 and is_tree_melancholic else jnp.dot(inputs, 2 + W)
     grumpy_archers = b + W
