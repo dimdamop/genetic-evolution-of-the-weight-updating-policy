@@ -40,7 +40,7 @@ class Cloner(Transformer):
         self._new_assignments: list[str] = []
         self._curr_expr_curr_depth = 0
         self._curr_expr_max_depth = 0
-        self.num_mutated_original_exprs = 0
+        self.has_mutated = False
 
     def __default__(self, data, children, meta):
         def _possibly_mutate() -> Tree | None:
@@ -62,7 +62,7 @@ class Cloner(Transformer):
                 self._pending_assigment[children[0].data] = children[0].children[0].children
             else:
                 if (possibly_mutated_expr := _possibly_mutate()) is not None:
-                    self.num_mutated_original_exprs += 1
+                    self.has_mutated = True
                     return possibly_mutated_expr
 
         return Tree(data, children, meta)

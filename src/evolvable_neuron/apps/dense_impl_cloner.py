@@ -48,13 +48,13 @@ def main():
     )
 
     cloning_iter = 1
-    is_mutated = False
+    has_mutated = False
 
-    while args.must_mutate and not is_mutated or cloning_iter <= args.min_cloning_iters:
+    while args.must_mutate and not has_mutated or cloning_iter <= args.min_cloning_iters:
         info("Cloning iteration %d", cloning_iter)
         cloner.reset()
         tree = cloner.transform(tree)
-        is_mutated = is_mutated or cloner.num_mutated_original_exprs > 0
+        has_mutated = has_mutated or cloner.has_mutated
         cloning_iter += 1
 
     with open(args.dst_impl_path, "w") if args.dst_impl_path else None as stream:
