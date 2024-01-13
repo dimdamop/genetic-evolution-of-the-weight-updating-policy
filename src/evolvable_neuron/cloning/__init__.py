@@ -1,4 +1,4 @@
-from .cloner import Cloner
+from .cloner import VarnamesGatherer, Cloner
 from .to_python import ToPython
 
-__all__ = ["Cloner", "ToPython"]
+__all__ = ["VarnamesGatherer", "Cloner", "ToPython"]

@@ -1,8 +1,24 @@
 from logging import debug
+from typing import Literal
 
 import numpy as np
-from lark import Token, Transformer, Tree
+from lark import Token, Transformer, Visitor, Tree
 from lark.load_grammar import Grammar
+
+
+class VarnamesGatherer(Visitor):
+
+    def __init__(self, grammar: Grammar, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.varnames = {"b": [], "s": [], "v": []}
+
+    def assign(self, tree):
+        # `"b_assign", etc
+        vartype: Literal["b", "s", "v"] = tree.children[0].data[0]
+        self.varnames[vartype].append(tree.children[0].children[0].children)
+
+    def generate_unobserved_varname(self, vartype: Literal["b", "s", "v"], rng) -> str:
+        return None
 
 
 class Cloner(Transformer):
@@ -12,6 +28,7 @@ class Cloner(Transformer):
     def __init__(
         self,
         grammar: Grammar,
+        varname_gen: VarnamesGatherer,
         mutation_rate: float = 0,
         new_expr_pull_factor: float | None = 0.05,
         seed: int | None = None,
@@ -24,6 +41,7 @@ class Cloner(Transformer):
         self.new_expr_pull_factor = new_expr_pull_factor or 0
         self.rng = np.random.default_rng(seed)
         self.allow_all = allow_all
+        self.varname_gen = varname_gen
         self.__set_grammar_objs(grammar)
 
     def __set_grammar_objs(self, grammar: Grammar) -> None:
@@ -43,11 +61,11 @@ class Cloner(Transformer):
         self.has_mutated = False
 
     def __default__(self, data, children, meta):
-        def _possibly_mutate() -> Tree | None:
+        def _possibly_new_expr() -> Tree | None:
             for expr_type, options in self.expr_options.items():
                 if data in options:
                     if self.rng.random() < self.mutation_rate:
-                        debug("Mutating...")
+                        debug("Generating a new expression...")
                         self._curr_expr_max_depth = 0
                         expr = self.new_expr(expr_type)
                         debug("The new expression has a depth of %s", self._curr_expr_max_depth)
@@ -61,9 +79,9 @@ class Cloner(Transformer):
                 # No reason to be doing this if ``self.mutation_rate == 0``
                 self._pending_assigment[children[0].data] = children[0].children[0].children
             else:
-                if (possibly_mutated_expr := _possibly_mutate()) is not None:
+                if (new_expr := _possibly_new_expr()) is not None:
                     self.has_mutated = True
-                    return possibly_mutated_expr
+                    return new_expr
 
         return Tree(data, children, meta)
 
@@ -103,11 +121,66 @@ class Cloner(Transformer):
                 break
 
         if self.rng.random() < self.mutation_rate:
-            # TODO: put `expr` in an assigment
-            pass
+            expr_id: Literal["b", "s", "v"] = expr_type[0]
+            varname = self.varname_gen.generate_unobserved_varname(expr_id, self.rng)
+            assignment = getattr(self, "new_" _ expr_id + "assign")(varname, expr)
+            self._assigned_varnames[assignment.children[0].data].append(assignment)
+            self._new_assignments.append(assignment)
+            expr = getattr(self, "new_" + expr_id + "_var_expr")(varname)
 
         self._curr_expr_curr_depth -= 1
         return expr
+
+    def new_b_assign(self, varname, expr) -> Tree:
+        return Tree(
+            data=Token("RULE", "assign"),
+            children=
+                [
+                    Tree(
+                        data=Token("RULE", "b_assign"),
+                        children=
+                        [
+                            Tree(data=Token("RULE", "b_varname"), children=varname),
+                            Tree(Token("RULE", "assign_kw"), []),
+                            expr,
+                        ]
+                    ),
+                ]
+            )
+
+    def new_s_assign(self, varname, expr) -> Tree:
+        return Tree(
+            data=Token("RULE", "assign"),
+            children=
+                [
+                    Tree(
+                        data=Token("RULE", "s_assign"),
+                        children=
+                        [
+                            Tree(data=Token("RULE", "s_varname"), children=varname),
+                            Tree(Token("RULE", "assign_kw"), []),
+                            expr,
+                        ]
+                    ),
+                ]
+            )
+
+    def new_v_assign(self, varname, expr) -> Tree:
+        return Tree(
+            data=Token("RULE", "assign"),
+            children=
+                [
+                    Tree(
+                        data=Token("RULE", "v_assign"),
+                        children=
+                        [
+                            Tree(data=Token("RULE", "v_varname"), children=varname),
+                            Tree(Token("RULE", "assign_kw"), []),
+                            expr,
+                        ]
+                    ),
+                ]
+            )
 
     def new_b2b_expr(self) -> Tree:
         # b2b_op b_expr -> b2b_expr
@@ -187,15 +260,17 @@ class Cloner(Transformer):
 
         return Tree(data="ss2b_expr", children=[left_expr, op_tree, right_expr])
 
-    def new_b_var_expr(self) -> Tree:
+    def new_b_var_expr(self, varname: list[Tree] | None = None) -> Tree:
         # b_varname : is sep noun sep adjective
         # b_varname -> b_var_expr
 
-        if not len(self._assigned_varnames["b_assign"]):
-            raise Cloner.NoVariable()
+        if varname is None:
+            if not len(self._assigned_varnames["b_assign"]):
+                raise Cloner.NoVariable()
 
-        var = self.rng.choice(self._assigned_varnames["b_assign"]).tolist()
-        return Tree(data=Token("RULE", "b_varname"), children=var)
+            varname = self.rng.choice(self._assigned_varnames["b_assign"]).tolist()
+
+        return Tree(data=Token("RULE", "b_varname"), children=varname)
 
     def new_b_const_expr(self) -> Tree:
         # bconst : IS_S0_ABOVE_S1
@@ -365,15 +440,17 @@ class Cloner(Transformer):
             ],
         )
 
-    def new_s_var_expr(self) -> Tree:
+    def new_s_var_expr(self, varname: list[Tree] | None = None) -> Tree:
         # s_varname : adjective sep noun
         # s_varname -> s_var_expr
 
-        if not len(self._assigned_varnames["s_assign"]):
-            raise Cloner.NoVariable()
+        if varname is None:
+            if not len(self._assigned_varnames["s_assign"]):
+                raise Cloner.NoVariable()
 
-        var = self.rng.choice(self._assigned_varnames["s_assign"]).tolist()
-        return Tree(data=Token("RULE", "s_varname"), children=var)
+            varname = self.rng.choice(self._assigned_varnames["s_assign"]).tolist()
+
+        return Tree(data=Token("RULE", "s_varname"), children=varname)
 
     def new_sv2v_expr(self) -> Tree:
         # v_expr : s_expr sv2v_op v_expr -> sv2v_expr
@@ -446,12 +523,14 @@ class Cloner(Transformer):
             ],
         )
 
-    def new_v_var_expr(self) -> Tree:
+    def new_v_var_expr(self, varname: list[Tree] | None = None) -> Tree:
         # v_varname : adjective sep noun plural
         # v_varname -> v_var_expr
 
-        if not len(self._assigned_varnames["v_assign"]):
-            raise Cloner.NoVariable()
+        if varname is None:
+            if not len(self._assigned_varnames["v_assign"]):
+                raise Cloner.NoVariable()
 
-        var = self.rng.choice(self._assigned_varnames["v_assign"]).tolist()
-        return Tree(data=Token("RULE", "v_varname"), children=var)
+            varname = self.rng.choice(self._assigned_varnames["v_assign"]).tolist()
+
+        return Tree(data=Token("RULE", "v_varname"), children=varname)
