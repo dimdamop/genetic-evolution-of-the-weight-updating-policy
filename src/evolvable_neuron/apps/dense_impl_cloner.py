@@ -4,7 +4,8 @@ from pathlib import Path
 
 from lark import Lark
 
-from evolvable_neuron.cloning import Cloner, ToPython, __file__ as cloning_module_path
+from evolvable_neuron.cloning import Cloner, ToPython
+from evolvable_neuron.cloning import __file__ as cloning_module_path
 
 
 def get_args() -> Namespace:
@@ -12,6 +13,7 @@ def get_args() -> Namespace:
     argparser.add_argument("--src-impl-path")
     argparser.add_argument("--dst-impl-path")
     argparser.add_argument("--mutation-rate", type=float)
+    argparser.add_argument("--must-mutate", action="store_true")
     argparser.add_argument("--min-cloning-iters", type=int)
     argparser.add_argument("--new-expr-pull-factor", type=float)
     argparser.add_argument("--random-seed", type=int)
@@ -23,6 +25,7 @@ def get_args() -> Namespace:
 
 
 def main():
+    basicConfig(level=DEBUG)
     args = get_args()
     parser = Lark.open(Path(cloning_module_path).parent / "dense_neuron_impl.lark")
 
@@ -47,7 +50,7 @@ def main():
     cloning_iter = 1
     is_mutated = False
 
-    while not is_mutated or cloning_iter <= args.min_cloning_iters:
+    while args.must_mutate and not is_mutated or cloning_iter <= args.min_cloning_iters:
         info("Cloning iteration %d", cloning_iter)
         cloner.reset()
         tree = cloner.transform(tree)
@@ -60,5 +63,4 @@ def main():
 
 
 if __name__ == "__main__":
-    basicConfig(level=DEBUG)
     main()
