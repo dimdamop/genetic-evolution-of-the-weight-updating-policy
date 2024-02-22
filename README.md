@@ -13,7 +13,7 @@ ideas are the following:
    round and the weights are initialized by those of that previous participant.
 6. These mutations are based on a grammar that covers a subset of the Python language.
 7. The ranking of the participants of the previous round in terms of performance in the testing set
-   affects their chances of getting mutated to the next round. Additionally, the top 50 % of the
+   affects their chances of getting mutated to the next round. Additionally, the top 25 % of the
    participants are copied without any mutation.
 8. The forward passes of the individual zero (ie., the first model all subsequent mutations inherit
    from) are functionally equivalent to those of a standard deep learning (DL) model.
