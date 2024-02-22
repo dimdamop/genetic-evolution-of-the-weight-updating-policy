@@ -4,7 +4,7 @@ from pathlib import Path
 
 from lark import Lark
 
-from evolvable_neuron.cloning import Cloner, ToPython, VarnamesGatherer
+from evolvable_neuron.cloning import Cloner, ToPython
 from evolvable_neuron.cloning import __file__ as cloning_module_path
 
 
@@ -52,14 +52,12 @@ def main():
 
     while args.must_mutate and not has_mutated or cloning_iter <= args.min_cloning_iters:
         info("Cloning iteration %d", cloning_iter)
-        varnames = VarnamesGatherer().visit(tree)
-        cloner.reset()
         tree = cloner.transform(tree)
         has_mutated = has_mutated or cloner.has_mutated
         cloning_iter += 1
 
     with open(args.dst_impl_path, "w") if args.dst_impl_path else None as stream:
-        info("I 'll dump the transformed tree to %s", args.dst_impl_path)
+        info("I 'll dump the transformed tree to %s", args.dst_impl_path or "STDOUT")
         ToPython(stream=stream).visit_topdown(tree)
 
 

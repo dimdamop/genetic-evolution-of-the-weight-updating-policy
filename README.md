@@ -17,3 +17,11 @@ ideas are the following:
    participants are copied without any mutation.
 8. The forward passes of the individual zero (ie., the first model all subsequent mutations inherit
    from) are functionally equivalent to those of a standard deep learning (DL) model.
+
+
+# Recent bibliography
+
+ * https://arxiv.org/abs/1810.01222
+ * https://arxiv.org/abs/1712.06567
+ * https://arxiv.org/abs/1802.06070
+ * https://www.sciencedirect.com/science/article/abs/pii/B9780323961042000026
