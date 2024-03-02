@@ -52,7 +52,7 @@ noun : "archer" -> archer
     | "velociraptor" -> velociraptor
     | "warrior" -> warrior
     | "xylophone" -> xylophone
-    | "yamnana" -> yamnana
+    | "yield" -> yield
     | "zealot" -> zealot
 
 INV_KW : "1 / "
