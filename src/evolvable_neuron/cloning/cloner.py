@@ -28,7 +28,7 @@ class VarnameGenerator(Visitor):
         self.varnames: VarnamesT = {"b_assign": [], "s_assign": [], "v_assign": []}
 
     def assign(self, tree):
-        self.varnames[tree.children[0].data].append(tree.children[0].children[0].children)
+        self.varnames[str(tree.children[0].data)].append(tree.children[0].children[0])
 
     @classmethod
     def _are_the_same(cls, varname1: Tree, varname2: Tree) -> bool:
@@ -126,8 +126,6 @@ class Cloner(Transformer):
         }
 
     def reset(self) -> None:
-        self._pending_assignment: tuple[Tree, AssignTypeT] | None = None
-        self._assigned_varnames: VarnamesT = {"b_assign": [], "s_assign": [], "v_assign": []}
         self._new_assignments: Deque[Tree] = deque()
         self._curr_expr_curr_depth = 0
         self._curr_expr_max_depth = 0
@@ -153,27 +151,15 @@ class Cloner(Transformer):
                     return expr
             return None
 
-        if self.mutation_rate > 0:
-            if data == "assign":
-                # No reason to be doing this if ``self.mutation_rate == 0``
-                self._pending_assignment = (children[0].children[0], children[0].data)
-            else:
-                if (new_expr := _possibly_new_expr()) is not None:
-                    self.has_mutated = True
-                    return new_expr
+        if self.mutation_rate > 0 and data != "assign":
+            if (new_expr := _possibly_new_expr()) is not None:
+                self.has_mutated = True
+                return new_expr
 
         return Tree(data, children, meta)
 
     def start(self, tree):
         return Tree(data="start", children=tree[:-1] + [*self._new_assignments, tree[-1]])
-
-    def nl(self, tree):
-        if self._pending_assignment is not None:
-            varname, assignment_type = self._pending_assignment
-            self._assigned_varnames[assignment_type].append(varname)
-            self._pending_assignment = None
-
-        return Tree(Token("RULE", "nl"), [])
 
     def new_expr(self, expr_type) -> Tree:
         self._curr_expr_curr_depth += 1
@@ -219,7 +205,7 @@ class Cloner(Transformer):
         debug("Placing an expression in an '%s' assignment...", assignment_type)
         varname = self.varname_gen.generate_unobserved_varname(assignment_type, self.rng)
         assignment = getattr(self, f"new_{assignment_type}")(varname, expr)
-        self._assigned_varnames[assignment_type].append(varname)
+        self.varname_gen.varnames[assignment_type].append(varname)
         self._new_assignments.append(assignment)
         return getattr(self, f"new_{expr_id}_var_expr")(varname)
 
@@ -359,10 +345,10 @@ class Cloner(Transformer):
         # b_varname -> b_var_expr
 
         if varname is None:
-            if not len(self._assigned_varnames["b_assign"]):
+            if not len(self.varname_gen.varnames["b_assign"]):
                 raise Cloner.NoVariable()
 
-            varname = _choice(self.rng, self._assigned_varnames["b_assign"])
+            varname = _choice(self.rng, self.varname_gen.varnames["b_assign"])
 
         return Tree(data=Token("RULE", "b_varname"), children=[varname])
 
@@ -539,10 +525,10 @@ class Cloner(Transformer):
         # s_varname -> s_var_expr
 
         if varname is None:
-            if not len(self._assigned_varnames["s_assign"]):
+            if not len(self.varname_gen.varnames["s_assign"]):
                 raise Cloner.NoVariable()
 
-            varname = _choice(self.rng, self._assigned_varnames["s_assign"])
+            varname = _choice(self.rng, self.varname_gen.varnames["s_assign"])
 
         return Tree(data=Token("RULE", "s_varname"), children=[varname])
 
@@ -622,9 +608,9 @@ class Cloner(Transformer):
         # v_varname -> v_var_expr
 
         if varname is None:
-            if not len(self._assigned_varnames["v_assign"]):
+            if not len(self.varname_gen.varnames["v_assign"]):
                 raise Cloner.NoVariable()
 
-            varname = _choice(self.rng, self._assigned_varnames["v_assign"])
+            varname = _choice(self.rng, self.varname_gen.varnames["v_assign"])
 
         return Tree(data=Token("RULE", "v_varname"), children=[varname])
