@@ -11,8 +11,8 @@ AssignTypeT = Literal["b_assign", "s_assign", "v_assign"]
 VarnamesT = dict[AssignTypeT: list[Tree]]
 
 
-def _choice(rng, sequence):
-    return sequence[rng.choice(len(sequence))]
+def _choice(rng, seq):
+    return seq[rng.choice(len(seq))]
 
 
 class VarnameGenerator(Visitor):
