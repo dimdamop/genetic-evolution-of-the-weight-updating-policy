@@ -22,18 +22,18 @@ class ToPython(Visitor):
     }
 
     def __init__(self, stream=stdout, *args, **kwargs):
-        self.stream = stream
+        self._stream = stream
         super().__init__(*args, **kwargs)
 
     def __default__(self, tree):
         if len(tree.children) == 0:
-            self.stream.write(ToPython.Mapper.get(tree.data, tree.data))
+            self._stream.write(ToPython.Mapper.get(tree.data, tree.data))
             return
 
         if all(isinstance(child, Token) for child in tree.children):
             for child in tree.children:
-                self.stream.write(str(child))
+                self._stream.write(str(child))
 
     def start(self, tree):
         for child in tree.children[:3]:
-            self.stream.write(str(child))
+            self._stream.write(str(child))

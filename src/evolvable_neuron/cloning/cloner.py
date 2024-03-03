@@ -1,5 +1,6 @@
+from collections import deque
 from logging import debug
-from typing import Literal
+from typing import Literal, Deque
 
 import numpy as np
 from lark import Token, Transformer, Visitor, Tree
@@ -127,7 +128,7 @@ class Cloner(Transformer):
     def reset(self) -> None:
         self._pending_assignment: tuple[Tree, AssignTypeT] | None = None
         self._assigned_varnames: VarnamesT = {"b_assign": [], "s_assign": [], "v_assign": []}
-        self._new_assignments: list[Tree] = []
+        self._new_assignments: Deque[Tree] = deque()
         self._curr_expr_curr_depth = 0
         self._curr_expr_max_depth = 0
         self.has_mutated = False
@@ -164,7 +165,7 @@ class Cloner(Transformer):
         return Tree(data, children, meta)
 
     def start(self, tree):
-        return Tree(data="start", children=tree[:3] + self._new_assignments + tree[3:])
+        return Tree(data="start", children=tree[:-1] + [*self._new_assignments, tree[-1]])
 
     def nl(self, tree):
         if self._pending_assignment is not None:
