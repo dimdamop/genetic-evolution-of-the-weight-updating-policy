@@ -1,6 +1,6 @@
 from collections import deque
 from logging import debug
-from typing import Literal, Deque
+from typing import Literal, Deque, List, Tuple
 
 import numpy as np
 from lark import Token, Transformer, Visitor, Tree
@@ -8,7 +8,7 @@ from lark.load_grammar import Grammar
 
 
 AssignTypeT = Literal["b_assign", "s_assign", "v_assign"]
-VarnamesT = dict[AssignTypeT: list[Tree]]
+VarnamesT = dict[AssignTypeT: List[Tree]]
 
 
 def _choice(rng, seq):
@@ -126,8 +126,9 @@ class Cloner(Transformer):
         }
 
     def reset(self) -> None:
-        self._varnames: VarnamesT = {"b_assign": [], "s_assign": [], "v_assign": []}
-        self._new_assignments: Deque[Tree] = deque()
+        self._available_varnames: VarnamesT = {"b_assign": [], "s_assign": [], "v_assign": []}
+        self._curr_new_assignments: Deque[Tree] = deque()
+        self._all_assignments: List[Tree] = []
         self._curr_expr_curr_depth = 0
         self._curr_expr_max_depth = 0
         self.has_mutated = False
@@ -152,7 +153,7 @@ class Cloner(Transformer):
                     return expr
             return None
 
-        if self.mutation_rate > 0 and data != "assign":
+        if self.mutation_rate > 0:
             if (new_expr := _possibly_new_expr()) is not None:
                 self.has_mutated = True
                 return new_expr
@@ -160,14 +161,35 @@ class Cloner(Transformer):
         return Tree(data, children, meta)
 
     def start(self, children):
-        return Tree(data="start", children=children[:-1] + [*self._new_assignments, children[-1]])
+        all_assignments = self._all_assignments + list(self._curr_new_assignments)
+        return Tree(data="start", children=children[:3] + all_assignments + [children[-1]])
 
     def assign(self, children):
         if len(children) != 1:
-            raise AssertionError("There should be only one child here")
-        assignment = children[0]
-        self._varnames[str(assignment.data)].append(assignment.children[0])
-        return assignment
+            raise AssertionError("Unexpected structure for 'assign'")
+
+        nested_assignment = Tree(Token("RULE", "assign"), children=children)
+        assignment = Tree(
+            data=Token("RULE", "indented_assign"),
+            children=[
+                Tree(Token("RULE", "tab"), []), nested_assignment, Tree(Token("RULE", "nl"), [])
+            ]
+        )
+
+        # make this variable available to the next statements
+        varname = children[0]
+        self._available_varnames[str(varname.data)].append(varname.children[0])
+
+        # record this assignment and any other ones created while processing it
+        while True:
+            try:
+                # order is important here: assignments have to be added after their dependencies
+                self._all_assignments.append(self._curr_new_assignments.popleft())
+            except IndexError:
+                self._all_assignments.append(assignment)
+                break
+
+        return nested_assignment
 
     def new_expr(self, expr_type) -> Tree:
         self._curr_expr_curr_depth += 1
@@ -212,8 +234,8 @@ class Cloner(Transformer):
         assignment_type: AssignTypeT = expr_id + "_assign"
         varname = self.varname_gen.generate_unobserved_varname(assignment_type, self.rng)
         assignment = getattr(self, f"new_{assignment_type}")(varname, expr)
-        self._varnames[assignment_type].append(varname)
-        self._new_assignments.append(assignment)
+        self._available_varnames[assignment_type].append(varname)
+        self._curr_new_assignments.append(assignment)
         debug("Placing an expression in an assignment with varname %s...", varname)
         return getattr(self, f"new_{expr_id}_var_expr")(varname)
 
@@ -348,15 +370,15 @@ class Cloner(Transformer):
 
         return Tree(data="ss2b_expr", children=[left_expr, op_tree, right_expr])
 
-    def new_b_var_expr(self, varname: list[Tree] | None = None) -> Tree:
+    def new_b_var_expr(self, varname: List[Tree] | None = None) -> Tree:
         # b_varname : is sep noun sep adjective
         # b_varname -> b_var_expr
 
         if varname is None:
-            if not len(self._varnames["b_assign"]):
+            if not len(self._available_varnames["b_assign"]):
                 raise Cloner.NoVariable()
 
-            varname = _choice(self.rng, self._varnames["b_assign"])
+            varname = _choice(self.rng, self._available_varnames["b_assign"])
 
         return Tree(data=Token("RULE", "b_varname"), children=[varname])
 
@@ -528,15 +550,15 @@ class Cloner(Transformer):
             ],
         )
 
-    def new_s_var_expr(self, varname: list[Tree] | None = None) -> Tree:
+    def new_s_var_expr(self, varname: List[Tree] | None = None) -> Tree:
         # s_varname : adjective sep noun
         # s_varname -> s_var_expr
 
         if varname is None:
-            if not len(self._varnames["s_assign"]):
+            if not len(self._available_varnames["s_assign"]):
                 raise Cloner.NoVariable()
 
-            varname = _choice(self.rng, self._varnames["s_assign"])
+            varname = _choice(self.rng, self._available_varnames["s_assign"])
 
         return Tree(data=Token("RULE", "s_varname"), children=[varname])
 
@@ -611,14 +633,14 @@ class Cloner(Transformer):
             ],
         )
 
-    def new_v_var_expr(self, varname: list[Tree] | None = None) -> Tree:
+    def new_v_var_expr(self, varname: List[Tree] | None = None) -> Tree:
         # v_varname : adjective sep noun plural
         # v_varname -> v_var_expr
 
         if varname is None:
-            if not len(self._varnames["v_assign"]):
+            if not len(self._available_varnames["v_assign"]):
                 raise Cloner.NoVariable()
 
-            varname = _choice(self.rng, self._varnames["v_assign"])
+            varname = _choice(self.rng, self._available_varnames["v_assign"])
 
         return Tree(data=Token("RULE", "v_varname"), children=[varname])
