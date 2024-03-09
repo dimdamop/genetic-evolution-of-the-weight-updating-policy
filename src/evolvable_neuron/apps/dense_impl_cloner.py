@@ -52,6 +52,7 @@ def main():
 
     while args.must_mutate and not has_mutated or cloning_iter <= args.min_cloning_iters:
         info("Cloning iteration %d", cloning_iter)
+        cloner.remove_unused_variables = cloning_iter >= args.min_cloning_iters
         tree = cloner.transform(tree)
         has_mutated = has_mutated or cloner.has_mutated
         cloning_iter += 1
