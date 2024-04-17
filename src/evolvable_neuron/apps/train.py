@@ -1,128 +1,180 @@
+# Adapted :mod:`jumanji.training.train`
+import inspect
 import logging
-import time
 
+from contextlib import AbstractContextManager
+from functools import partial
+from time import perf_counter
+from typing import Any, Dict, Tuple, Literal
+
+import hydra
+import jax
 import jax.numpy as jnp
-import tensorflow as tf
-from jax import grad, jit, random
+import jumanji as jum
+import omegaconf
 
-from evolvable_neuron.env.supervised_autogen import batch_iterator
-from evolvable_neuron.learning.optimizers import constant as constant_sched
-from evolvable_neuron.learning.optimizers import sgd
-from evolvable_neuron.learning.stax import (
-    BatchNorm,
-    Conv,
-    Dense,
-    Flatten,
-    LogSoftmax,
-    MaxPool,
-    Relu,
-    serial,
-)
+from chex import PRNGKey
+from hydra.utils import instantiate
+from tqdm.auto import trange
+from jumanji.wrappers import VmapAutoResetWrapper
+from jumanji.training.timer import Timer
+from jumanji.training.agents.base import Agent
+from jumanji.training.types import ActingState, TrainingState
 
 
-def model():
-    return serial(
-        Conv(32, (3, 3), padding="SAME"),
-        BatchNorm((0, 1)),
-        Relu,
-        Conv(64, (3, 3), padding="SAME"),
-        BatchNorm((0, 1)),
-        Relu,
-        MaxPool((2, 2)),
-        Conv(32, (3, 3), padding="SAME"),
-        BatchNorm((0, 1)),
-        Relu,
-        Conv(64, (3, 3), padding="SAME"),
-        BatchNorm((0, 1)),
-        Relu,
-        MaxPool((2, 2)),
-        Conv(32, (3, 3), padding="SAME"),
-        BatchNorm((0, 1)),
-        Relu,
-        Conv(64, (3, 3), padding="SAME"),
-        BatchNorm((0, 1)),
-        Relu,
-        MaxPool((2, 2)),
-        Conv(32, (3, 3), padding="SAME"),
-        BatchNorm((0, 1)),
-        Relu,
-        Conv(64, (3, 3), padding="SAME"),
-        BatchNorm((0, 1)),
-        Relu,
-        MaxPool((12, 12)),
-        Flatten,
-        Dense(32),
-        BatchNorm((0, 1)),
-        Relu,
-        Dense(32),
-        BatchNorm((0, 1)),
-        Relu,
-        Dense(2),
-        LogSoftmax,
+def first_from_device(tree):
+    squeeze_fn = lambda x: x[0] if isinstance(x, jnp.ndarray) else x
+    return jax.tree_util.tree_map(squeeze_fn, tree)
+
+
+@hydra.main(config_path="cfg", config_name="rubiks_cube")
+def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
+
+    logging.info(omegaconf.OmegaConf.to_yaml(cfg))
+    logging.getLogger().setLevel(logging.INFO)
+    logging.info({"devices": jax.local_devices()})
+
+    key, init_key = jax.random.split(jax.random.PRNGKey(cfg.seed))
+    logger = instantiate(cfg.logger)
+    env = VmapAutoResetWrapper(jum.make(cfg.environment_id))
+    agent = instantiate(cfg.agent)(env)
+    training_state = _training_state(env, agent, init_key)
+
+    epoch_steps = (
+        cfg.training.n_steps
+        * cfg.training.total_batch_size
+        * cfg.training.num_learner_steps_per_epoch
+    )
+    eval_timer = Timer(out_var_name="metrics")
+
+    evaluators = [
+        instantiate(evlr)(
+            eval_env=jum.make(cfg.environment_id),
+            agent=agent,
+        ) for evlr in cfg.evaluators
+    ]
+
+    @partial(jax.pmap, axis_name="devices")
+    def epoch_fn(training_state: TrainingState) -> Tuple[TrainingState, Dict]:
+        training_state, metrics = jax.lax.scan(
+            lambda training_state, _: agent.run_epoch(training_state),
+            training_state,
+            None,
+            cfg.training.num_learner_steps_per_epoch,
+        )
+        metrics = jax.tree_util.tree_map(jnp.mean, metrics)
+        return training_state, metrics
+
+    with jax.log_compiles(log_compiles), logger:
+        for i in trange(cfg.training.num_epochs):
+            key, *evltr_keys = jax.random.split(key, len(evaluators) + 1)
+
+            for evltr_i, (evltr, evl_key) in enumerate(zip(evaluators, evltr_keys)):
+                with eval_timer:
+                    metrics = evltr.run_evaluation(training_state.params_state, evl_key)
+                    jax.block_until_ready(metrics)
+                logger.write(
+                    data=first_from_device(metrics),
+                    label=f"eval/{evltr_i}",
+                    env_steps=i * epoch_steps,
+                )
+
+            # training
+            with Timer(out_var_name="metrics", num_steps_per_timing=epoch_steps):
+                training_state, metrics = epoch_fn(training_state)
+                jax.block_until_ready((training_state, metrics))
+
+            logger.write(
+                data=first_from_device(metrics),
+                label="train",
+                env_steps=i * epoch_steps,
+            )
+
+
+def _training_state(env: jum.Environment, agent: Agent, key: PRNGKey) -> TrainingState:
+    params_key, reset_key, acting_key = jax.random.split(key, 3)
+
+    # Initialize params
+    params_state = agent.init_params(params_key)
+
+    # Initialize environment states
+    num_local_devices = jax.local_device_count()
+    num_global_devices = jax.device_count()
+    num_workers = num_global_devices // num_local_devices
+    local_batch_size = agent.total_batch_size // num_global_devices
+    reset_keys = jax.random.split(reset_key, agent.total_batch_size).reshape(
+        (num_workers, num_local_devices, local_batch_size, -1)
+    )
+    env_state, timestep = jax.pmap(env.reset, axis_name="devices")(
+        reset_keys[jax.process_index()]
+    )
+
+    # Initialize acting states
+    acting_key_per_device = jax.random.split(acting_key, num_global_devices).reshape(
+        num_workers, num_local_devices, -1
+    )
+    acting_state = ActingState(
+        state=env_state,
+        timestep=timestep,
+        key=acting_key_per_device[jax.process_index()],
+        episode_count=jnp.zeros(num_local_devices, float),
+        env_step_count=jnp.zeros(num_local_devices, float),
+    )
+
+    return TrainingState(
+        params_state=jax.device_put_replicated(params_state, jax.local_devices()),
+        acting_state=acting_state,
     )
 
 
-def main():
-    logging.basicConfig(level=logging.DEBUG)
+class Timer(AbstractContextManager):
+    def __init__(
+        self, out_var_name: str | None = None, num_steps_per_timing: int | None = None,
+    ):
+        """Wraps some computation as a context manager. Expects the variable `out_var_name` to be
+        newly created within the context of Timer and will append some timing metrics to it.
 
-    rng = random.PRNGKey(0)
+        Args:
+            out_var_name: name of the variable to append timing metrics to.
+            num_steps_per_timing: number of steps computed during the timing.
+        """
+        self.out_var_name = out_var_name
+        self.num_steps_per_timing = num_steps_per_timing
 
-    # Prevent tf from grabbing all GPU memory
-    tf.config.set_visible_devices([], device_type="GPU")
+    def _get_variables(self) -> Dict:
+        """Returns the local variables that are accessible in the context of the context manager.
+        This function gets the locals 2 stacks above. Index 0 is this very function, 1 is the
+        __init__/__exit__ level, 2 is the context manager level.
+        """
+        return {(k, id(v)): v for k, v in inspect.stack()[2].frame.f_locals.items()}
 
-    sgd_step_size = 1e-5
-    max_opt_iters = 10000
-    report_every = 10
-    batch_size = 64
-    img_dim_len = 96
+    def __enter__(self) -> Timer:
+        self._variables_enter = self._get_variables()
+        self._start_time = perf_counter()
+        return self
 
-    ds_gen = batch_iterator(resize_to=[img_dim_len, img_dim_len], batch_size=batch_size)
-
-    in_shape = (-1, img_dim_len, img_dim_len, 3)
-    net = model()
-    _, net_params = net.init(rng, in_shape)
-
-    opt = sgd(step_size=constant_sched(sgd_step_size))
-    opt_state = opt.init(net_params)
-
-    @jit
-    def loss(params, batch):
-        inputs, targets = batch
-        preds = net.apply(params, inputs)
-        return -(targets * preds).sum(-1).mean()
-
-    @jit
-    def accuracy(params, batch):
-        inputs, targets = batch
-        preds = net.apply(params, inputs)
-        hard_targets = jnp.argmax(targets, axis=-1)
-        hard_preds = jnp.argmax(preds, axis=-1)
-        return (hard_targets == hard_preds).mean()
-
-    @jit
-    def opt_step(opt_iter: int, opt_state, batch) -> None:
-        params = opt.get_params(opt_state)
-        return opt.update(opt_iter, grad(loss)(params, batch), opt_state)
-
-    started_at = time.time()
-
-    for opt_iter, batch in enumerate(ds_gen):
-        if opt_iter == max_opt_iters:
-            break
-
-        train_batch = batch["img"].numpy(), batch["binary"].numpy()
-        opt_state = opt_step(opt_iter, opt_state, train_batch)
-
-        if (opt_iter + 1) % report_every == 0:
-            ended_at = time.time()
-            epoch_duration = ended_at - started_at
-            started_at = ended_at
-            curr_loss = loss(opt.get_params(opt_state), train_batch)
-            curr_accuracy = accuracy(opt.get_params(opt_state), train_batch)
-            print(
-                f"epoch {opt_iter + 1}/{max_opt_iters} ({epoch_duration:1.2f} s): "
-                f"batch loss: {curr_loss:1.5f}, batch accuracy: {100 * curr_accuracy:2.3} %"
+    def __exit__(self, *exc: Any) -> Literal[False]:
+        elapsed_time = perf_counter() - self._start_time
+        self._variables_exit = self._get_variables()
+        self.data = {"time": elapsed_time}
+        if self.num_steps_per_timing is not None:
+            self.data.update(
+                steps_per_second=int(self.num_steps_per_timing / elapsed_time)
             )
+        self._write_in_variable(self.data)
+        return False
+
+    def _write_in_variable(self, data: Dict[str, float]) -> None:
+        in_context_variables = dict(
+            set(self._variables_exit).difference(self._variables_enter)
+        )
+        metrics_id = in_context_variables.get(self.out_var_name, None)
+        if metrics_id is None:
+            logging.debug(
+                "Timer did not find variable %s at the context manager level.", self.out_var_name
+            )
+        else:
+            self._variables_exit[("metrics", metrics_id)].update(data)
 
 
 if __name__ == "__main__":

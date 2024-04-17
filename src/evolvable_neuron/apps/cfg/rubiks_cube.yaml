@@ -1,0 +1,76 @@
+seed: 934
+
+logger:
+    _target_: jumanji.training.loggers.TensorboardLogger
+    name: learn-jumanji
+    save_checkpoint: False
+
+environment_id: RubiksCube-v0
+
+evaluators:
+    # evaluation of the action-selection scheme using during training
+    - _target_: jumanji.training.evaluator.Evaluator
+      _partial_: True
+      total_batch_size: 1024
+      stochastic: True
+    # evaluation of an argmax action-selection scheme
+    - _target_: jumanji.training.evaluator.Evaluator
+      _partial_: True
+      total_batch_size: 1024
+      stochastic: False
+
+training:
+    # Number of environments run in parallel
+    total_batch_size: 256
+    # Number of single environment steps after a SGD update (aka. iteration)
+    n_steps: 10
+    # Number of iterations after each evaluation session (aka. epoch)
+    num_learner_steps_per_epoch: 100
+    # Number of epochs
+    num_epochs: 1000
+
+env:
+    # 'RubiksCube-v0' has a time limit of 200, but the reference implementation
+    # sets it to `20`
+    time_limit: 20
+    # For 'RubiksCube-v0': ``env.unwrapped.action_spec().num_values == [6, 1, 3]``, hence
+    # the number of actions is 6 * 1 * 3 == 18
+    action_spec_num_values: '[6, 1, 3]'
+    num_actions: 18
+
+agent:
+    _target_: jumanji.training.agents.a2c.A2CAgent
+    _partial_: True
+    n_steps: ${training.n_steps}
+    total_batch_size: ${training.total_batch_size}
+    actor_critic_networks:
+        _target_: jumanji.training.networks.actor_critic.ActorCriticNetworks
+        policy_network:
+            _target_: jumanji.training.networks.rubiks_cube.actor_critic.make_actor_network
+            cube_embed_dim: 4
+            time_limit: ${env.time_limit}
+            step_count_embed_dim: 16
+            dense_layer_dims: ${oc.decode:'[256, 256]'}
+            num_actions: ${env.num_actions}
+        value_network:
+            _target_: jumanji.training.networks.rubiks_cube.actor_critic.make_critic_network
+            cube_embed_dim: 16
+            dense_layer_dims: ${oc.decode:'[256, 256]'}
+            time_limit: ${env.time_limit}
+            step_count_embed_dim: 16
+        parametric_action_distribution:
+            _target_: jumanji.training.networks.parametric_distribution.FactorisedActionSpaceParametricDistribution
+            action_spec_num_values:
+                _target_: numpy.array
+                object: ${oc.decode:${env.action_spec_num_values}}
+                dtype: int32
+
+    optimizer:
+        _target_: optax.adam
+        learning_rate: 1e-3
+    normalize_advantage: False
+    discount_factor: ???
+    bootstrapping_factor: ???
+    l_pg: ???
+    l_td: ???
+    l_en: ???
