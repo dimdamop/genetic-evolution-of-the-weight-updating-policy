@@ -13,17 +13,18 @@
             "console": "integratedTerminal",
             "args": [
                 "--src",
-                "${workspaceFolder}/playground/example_dense_neuron.py",
+                "${workspaceFolder}/playground/vanilla_dense_neuron.py",
                 "--dst",
-                "${workspaceFolder}/playground/cloned_example_dense_neuron.py",
+                "${workspaceFolder}/playground/example_dense_neuron.py",
                 "--mutation",
-                ".01",
-                "--new-expr-pull",
                 ".05",
+                "--new-expr-pull",
+                ".1",
                 "--min-cloning",
-                "10",
+                "14",
                 "--random-seed",
-                "4",
+                "50",
+                "--must-mutate",
             ]
         }
     ]
