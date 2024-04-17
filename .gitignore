@@ -1,6 +1,6 @@
-__pycache__/
-*.egg-info/
-
+__pycache__
+*.egg-info
+playground
 env
-env-jax
-
+.log
+outputs
