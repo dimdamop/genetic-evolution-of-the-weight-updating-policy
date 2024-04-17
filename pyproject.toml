@@ -19,12 +19,12 @@ readme = "README.md"
 
 dynamic = ["version"]
 dependencies = [
-    "numpy==1.24.3",
-    "lark==1.1.8",
-    "tensorflow==2.13",
-    "jax==0.4.20",
+    "jax",
+    "numpy",
+    "lark",
+    "tensorflow",
 ]
-requires-python = "== 3.11.6"
+requires-python = "== 3.11.8"
 
 [tool.setuptools.dynamic]
 version = {attr = "evolvable_neuron.__version__"}
@@ -37,8 +37,8 @@ dev = [
 ]
 
 [project.scripts]
-evln-train-classifier = "evolvable_neuron.apps.train:main"
-evln-neuron-clone = "evolvable_neuron.apps.dense_impl_cloner:main"
+evln-train = "evolvable_neuron.apps.train:main"
+evln-clone = "evolvable_neuron.apps.dense_impl_cloner:main"
 
 [tool.black]
 line-length = 100
