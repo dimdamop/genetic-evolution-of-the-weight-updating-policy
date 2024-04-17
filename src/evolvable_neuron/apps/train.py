@@ -51,7 +51,8 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
         instantiate(evlr)(
             eval_env=jum.make(cfg.environment_id),
             agent=agent,
-        ) for evlr in cfg.evaluators
+        )
+        for evlr in cfg.evaluators
     ]
 
     @partial(jax.pmap, axis_name="devices")
@@ -105,9 +106,7 @@ def _training_state(env: jum.Environment, agent: Agent, key: PRNGKey) -> Trainin
     reset_keys = jax.random.split(reset_key, agent.total_batch_size).reshape(
         (num_workers, num_local_devices, local_batch_size, -1)
     )
-    env_state, timestep = jax.pmap(env.reset, axis_name="devices")(
-        reset_keys[jax.process_index()]
-    )
+    env_state, timestep = jax.pmap(env.reset, axis_name="devices")(reset_keys[jax.process_index()])
 
     # Initialize acting states
     acting_key_per_device = jax.random.split(acting_key, num_global_devices).reshape(
@@ -129,7 +128,9 @@ def _training_state(env: jum.Environment, agent: Agent, key: PRNGKey) -> Trainin
 
 class Timer(AbstractContextManager):
     def __init__(
-        self, out_var_name: str | None = None, num_steps_per_timing: int | None = None,
+        self,
+        out_var_name: str | None = None,
+        num_steps_per_timing: int | None = None,
     ):
         """Wraps some computation as a context manager. Expects the variable `out_var_name` to be
         newly created within the context of Timer and will append some timing metrics to it.
@@ -158,16 +159,12 @@ class Timer(AbstractContextManager):
         self._variables_exit = self._get_variables()
         self.data = {"time": elapsed_time}
         if self.num_steps_per_timing is not None:
-            self.data.update(
-                steps_per_second=int(self.num_steps_per_timing / elapsed_time)
-            )
+            self.data.update(steps_per_second=int(self.num_steps_per_timing / elapsed_time))
         self._write_in_variable(self.data)
         return False
 
     def _write_in_variable(self, data: Dict[str, float]) -> None:
-        in_context_variables = dict(
-            set(self._variables_exit).difference(self._variables_enter)
-        )
+        in_context_variables = dict(set(self._variables_exit).difference(self._variables_enter))
         metrics_id = in_context_variables.get(self.out_var_name, None)
         if metrics_id is None:
             logging.debug(
