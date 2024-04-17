@@ -1,6 +1,7 @@
 from argparse import ArgumentParser, Namespace
-from logging import DEBUG, basicConfig, info
+from logging import DEBUG as LOG_LEVEL, basicConfig, info
 from pathlib import Path
+from sys import stdout
 
 from lark import Lark
 
@@ -25,7 +26,7 @@ def get_args() -> Namespace:
 
 
 def main():
-    basicConfig(level=DEBUG)
+    basicConfig(level=LOG_LEVEL)
     args = get_args()
     parser = Lark.open(Path(cloning_module_path).parent / "dense_neuron_impl.lark")
 
@@ -57,8 +58,8 @@ def main():
         has_mutated = has_mutated or cloner.has_mutated
         cloning_iter += 1
 
-    with open(args.dst_impl_path, "w") if args.dst_impl_path else None as stream:
-        info("I 'll dump the transformed tree to %s", args.dst_impl_path or "STDOUT")
+    with open(args.dst_impl_path, "w") if args.dst_impl_path else stdout as stream:
+        info("I 'll dump the transformed tree to %s", args.dst_impl_path or "stdout")
         ToPython(stream=stream).visit_topdown(tree)
 
 
