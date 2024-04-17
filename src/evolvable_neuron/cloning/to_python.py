@@ -1,5 +1,3 @@
-from sys import stdout
-
 from lark import Token, Visitor
 
 
@@ -21,7 +19,7 @@ class ToPython(Visitor):
         "grammar_and": "_and_",
     }
 
-    def __init__(self, stream=stdout, *args, **kwargs):
+    def __init__(self, stream, *args, **kwargs):
         self._stream = stream
         super().__init__(*args, **kwargs)
 
