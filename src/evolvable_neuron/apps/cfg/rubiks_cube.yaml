@@ -26,8 +26,8 @@ training:
     n_steps: 10
     # Number of iterations after each evaluation session (aka. epoch)
     num_learner_steps_per_epoch: 100
-    # Number of epochs
-    num_epochs: 1000
+    # During of training (sec)
+    time_budget: 600
 
 env:
     # 'RubiksCube-v0' has a time limit of 200, but the reference implementation
@@ -49,15 +49,15 @@ agent:
             _target_: jumanji.training.networks.rubiks_cube.actor_critic.make_actor_network
             cube_embed_dim: 4
             time_limit: ${env.time_limit}
-            step_count_embed_dim: 16
+            step_count_embed_dim: 4
             dense_layer_dims: ${oc.decode:'[256, 256]'}
             num_actions: ${env.num_actions}
         value_network:
             _target_: jumanji.training.networks.rubiks_cube.actor_critic.make_critic_network
-            cube_embed_dim: 16
+            cube_embed_dim: 4
             dense_layer_dims: ${oc.decode:'[256, 256]'}
             time_limit: ${env.time_limit}
-            step_count_embed_dim: 16
+            step_count_embed_dim: 4
         parametric_action_distribution:
             _target_: jumanji.training.networks.parametric_distribution.FactorisedActionSpaceParametricDistribution
             action_spec_num_values:
