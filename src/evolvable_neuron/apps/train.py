@@ -4,7 +4,7 @@ import logging
 
 from contextlib import AbstractContextManager
 from functools import partial
-from time import perf_counter
+from time import perf_counter, time
 from typing import Any, Dict, Tuple, Literal
 
 import hydra
@@ -15,9 +15,7 @@ import omegaconf
 
 from chex import PRNGKey
 from hydra.utils import instantiate
-from tqdm.auto import trange
 from jumanji.wrappers import VmapAutoResetWrapper
-from jumanji.training.timer import Timer
 from jumanji.training.agents.base import Agent
 from jumanji.training.types import ActingState, TrainingState
 
@@ -66,8 +64,15 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, metrics
 
+    logging.info("Starting training")
+
     with jax.log_compiles(log_compiles), logger:
-        for i in trange(cfg.training.num_epochs):
+
+        epi = 1
+        start_t = time()
+        last_epoch_t = start_t
+
+        while (train_t := (time() - start_t)) < cfg.training.time_budget:
             key, *evltr_keys = jax.random.split(key, len(evaluators) + 1)
 
             for evltr_i, (evltr, evl_key) in enumerate(zip(evaluators, evltr_keys)):
@@ -77,7 +82,7 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
                 logger.write(
                     data=first_from_device(metrics),
                     label=f"eval/{evltr_i}",
-                    env_steps=i * epoch_steps,
+                    env_steps=epi * epoch_steps,
                 )
 
             # training
@@ -88,8 +93,25 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
             logger.write(
                 data=first_from_device(metrics),
                 label="train",
-                env_steps=i * epoch_steps,
+                env_steps=epi * epoch_steps,
             )
+
+            logging.info(
+                "The %d%s epoch finished in %f sec. Remaining time budget: %f sec",
+                epi,
+                "st" if epi == 1 else "nd" if epi == 2 else "rd" if epi == 3 else "th",
+                train_t - last_epoch_t,
+                cfg.training.time_budget - train_t,
+            )
+
+            last_epoch_t = train_t
+            epi += 1
+
+        logging.info(
+            "The training lasted %f seconds (with a time budget of %f)",
+            train_t,
+            cfg.training.time_budget,
+        )
 
 
 def _training_state(env: jum.Environment, agent: Agent, key: PRNGKey) -> TrainingState:
@@ -132,8 +154,9 @@ class Timer(AbstractContextManager):
         out_var_name: str | None = None,
         num_steps_per_timing: int | None = None,
     ):
-        """Wraps some computation as a context manager. Expects the variable `out_var_name` to be
-        newly created within the context of Timer and will append some timing metrics to it.
+        """Wraps some computation as a context manager. Expects the variable
+        `out_var_name` to be newly created within the context of Timer and will
+        append some timing metrics to it.
 
         Args:
             out_var_name: name of the variable to append timing metrics to.
@@ -143,13 +166,14 @@ class Timer(AbstractContextManager):
         self.num_steps_per_timing = num_steps_per_timing
 
     def _get_variables(self) -> Dict:
-        """Returns the local variables that are accessible in the context of the context manager.
-        This function gets the locals 2 stacks above. Index 0 is this very function, 1 is the
-        __init__/__exit__ level, 2 is the context manager level.
+        """Returns the local variables that are accessible in the context of the
+        context manager.  This function gets the locals 2 callstacks above.
+        Index 0 is this very function, 1 is the __init__/__exit__ level, 2 is
+        the context manager level.
         """
         return {(k, id(v)): v for k, v in inspect.stack()[2].frame.f_locals.items()}
 
-    def __enter__(self) -> Timer:
+    def __enter__(self):
         self._variables_enter = self._get_variables()
         self._start_time = perf_counter()
         return self

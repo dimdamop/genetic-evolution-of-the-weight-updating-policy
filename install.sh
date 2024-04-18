@@ -13,6 +13,5 @@ pip install \
     jumanji \
     tensorboardX \
     neptune \
-    tqdm \
     dm-haiku \
     rlax
