@@ -4,7 +4,7 @@ import logging
 
 from contextlib import AbstractContextManager
 from functools import partial
-from time import perf_counter, time
+from time import perf_counter
 from typing import Any, Dict, Tuple, Literal
 
 import hydra
@@ -39,11 +39,12 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
     training_state = _training_state(env, agent, init_key)
 
     epoch_steps = (
-        cfg.training.n_steps
-        * cfg.training.total_batch_size
-        * cfg.training.num_learner_steps_per_epoch
+        cfg.training.envs_in_parallel
+        * cfg.training.env_steps_per_update
+        * cfg.training.num_learner_updates_per_epoch
     )
     eval_timer = Timer(out_var_name="metrics")
+    train_timer = Timer(out_var_name="metrics", num_steps_per_timing=epoch_steps)
 
     evaluators = [
         instantiate(evlr)(
@@ -59,20 +60,20 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
             lambda training_state, _: agent.run_epoch(training_state),
             training_state,
             None,
-            cfg.training.num_learner_steps_per_epoch,
+            cfg.training.num_learner_updates_per_epoch,
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, metrics
 
-    logging.info("Starting training")
+    logging.info("Starting training. The time budget is %.1f sec", cfg.training.time_budget)
 
     with jax.log_compiles(log_compiles), logger:
 
         epi = 1
-        start_t = time()
-        last_epoch_t = start_t
+        remaining_t = cfg.training.time_budget
+        last_epoch_t = 0
 
-        while (train_t := (time() - start_t)) < cfg.training.time_budget:
+        while remaining_t >= last_epoch_t:
             key, *evltr_keys = jax.random.split(key, len(evaluators) + 1)
 
             for evltr_i, (evltr, evl_key) in enumerate(zip(evaluators, evltr_keys)):
@@ -86,7 +87,7 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
                 )
 
             # training
-            with Timer(out_var_name="metrics", num_steps_per_timing=epoch_steps):
+            with train_timer:
                 training_state, metrics = epoch_fn(training_state)
                 jax.block_until_ready((training_state, metrics))
 
@@ -96,20 +97,22 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
                 env_steps=epi * epoch_steps,
             )
 
+            last_epoch_t = train_timer.elapsed_time
+            remaining_t -= last_epoch_t
+
             logging.info(
-                "The %d%s epoch finished in %f sec. Remaining time budget: %f sec",
+                "The %d%s epoch finished in %.1f sec. Remaining time credit: %.1f sec",
                 epi,
                 "st" if epi == 1 else "nd" if epi == 2 else "rd" if epi == 3 else "th",
-                train_t - last_epoch_t,
-                cfg.training.time_budget - train_t,
+                last_epoch_t,
+                remaining_t,
             )
 
-            last_epoch_t = train_t
             epi += 1
 
         logging.info(
-            "The training lasted %f seconds (with a time budget of %f)",
-            train_t,
+            "The training lasted %.1f sec (with a time budget of %.1f sec)",
+            cfg.training.time_budget - remaining_t,
             cfg.training.time_budget,
         )
 
@@ -154,23 +157,22 @@ class Timer(AbstractContextManager):
         out_var_name: str | None = None,
         num_steps_per_timing: int | None = None,
     ):
-        """Wraps some computation as a context manager. Expects the variable
-        `out_var_name` to be newly created within the context of Timer and will
-        append some timing metrics to it.
+        """Wraps some computation as a context manager. Expects the variable `out_var_name` to be
+        newly created within the context of Timer and will append some timing metrics to it.
 
         Args:
             out_var_name: name of the variable to append timing metrics to.
+
             num_steps_per_timing: number of steps computed during the timing.
         """
         self.out_var_name = out_var_name
         self.num_steps_per_timing = num_steps_per_timing
 
     def _get_variables(self) -> Dict:
-        """Returns the local variables that are accessible in the context of the
-        context manager.  This function gets the locals 2 callstacks above.
-        Index 0 is this very function, 1 is the __init__/__exit__ level, 2 is
-        the context manager level.
-        """
+        """Returns the local variables that are accessible in the context of the context manager"""
+
+        # We have to ascent 2 callstacks: the first is this very function, the second is the caller
+        # (ie., `__init__` or `__exit__`) and the third is the context manager level that we need.
         return {(k, id(v)): v for k, v in inspect.stack()[2].frame.f_locals.items()}
 
     def __enter__(self):
@@ -179,11 +181,11 @@ class Timer(AbstractContextManager):
         return self
 
     def __exit__(self, *exc: Any) -> Literal[False]:
-        elapsed_time = perf_counter() - self._start_time
+        self.elapsed_time = perf_counter() - self._start_time
         self._variables_exit = self._get_variables()
-        self.data = {"time": elapsed_time}
+        self.data = {"time": self.elapsed_time}
         if self.num_steps_per_timing is not None:
-            self.data.update(steps_per_second=int(self.num_steps_per_timing / elapsed_time))
+            self.data.update(steps_per_second=int(self.num_steps_per_timing / self.elapsed_time))
         self._write_in_variable(self.data)
         return False
 
