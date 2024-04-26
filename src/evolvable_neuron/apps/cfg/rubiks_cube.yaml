@@ -1,4 +1,6 @@
-seed: 934
+seed:
+    train: 934
+    evaluation: 990
 
 logger:
     _target_: jumanji.training.loggers.TensorboardLogger
@@ -8,16 +10,18 @@ logger:
 environment_id: RubiksCube-partly-scrambled-v0
 
 evaluators:
-    # evaluation of the action-selection scheme using during training
-    - _target_: jumanji.training.evaluator.Evaluator
-      _partial_: True
-      total_batch_size: 1024
-      stochastic: True
+    # evaluation of the action-selection scheme used during training
+    stochastic:
+        _target_: evolvable_neuron.agent.Evaluator
+        _partial_: True
+        total_batch_size: 1024
+        stochastic: True
     # evaluation of an argmax action-selection scheme
-    - _target_: jumanji.training.evaluator.Evaluator
-      _partial_: True
-      total_batch_size: 1024
-      stochastic: False
+    greedy:
+        _target_: evolvable_neuron.agent.Evaluator
+        _partial_: True
+        total_batch_size: 1024
+        stochastic: False
 
 training:
     # Number of environments that run in parallel. This is also the batch size
@@ -27,7 +31,7 @@ training:
     # Number of iterations after each evaluation session (aka. epoch)
     num_learner_updates_per_epoch: 100
     # During of training (sec)
-    time_budget: 600
+    time_budget: 300
 
 env:
     # 'RubiksCube-v0' has a time limit of 200, 'RubiksCube-partly-scrambled-v0' of 20
@@ -39,7 +43,7 @@ env:
     num_actions: 18
 
 agent:
-    _target_: jumanji.training.agents.a2c.A2CAgent
+    _target_: evolvable_neuron.agent.A2CAgent
     _partial_: True
     n_steps: ${training.env_steps_per_update}
     total_batch_size: ${training.envs_in_parallel}
