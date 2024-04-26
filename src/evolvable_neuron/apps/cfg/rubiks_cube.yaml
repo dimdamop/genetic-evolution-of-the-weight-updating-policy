@@ -12,13 +12,13 @@ environment_id: RubiksCube-partly-scrambled-v0
 evaluators:
     # evaluation of the action-selection scheme used during training
     stochastic:
-        _target_: evolvable_neuron.agent.Evaluator
+        _target_: jumanji.training.evaluator.Evaluator
         _partial_: True
         total_batch_size: 1024
         stochastic: True
     # evaluation of an argmax action-selection scheme
     greedy:
-        _target_: evolvable_neuron.agent.Evaluator
+        _target_: jumanji.training.evaluator.Evaluator
         _partial_: True
         total_batch_size: 1024
         stochastic: False
@@ -30,12 +30,11 @@ training:
     env_steps_per_update: 10
     # Number of iterations after each evaluation session (aka. epoch)
     num_learner_updates_per_epoch: 100
-    # During of training (sec)
+    # Duration of training (sec)
     time_budget: 300
 
 env:
     # 'RubiksCube-v0' has a time limit of 200, 'RubiksCube-partly-scrambled-v0' of 20
-    # sets it to `20`
     time_limit: 20
     # For 'RubiksCube-v0': ``env.unwrapped.action_spec().num_values == [6, 1, 3]``, hence
     # the number of actions is 6 * 1 * 3 == 18
@@ -43,7 +42,7 @@ env:
     num_actions: 18
 
 agent:
-    _target_: evolvable_neuron.agent.A2CAgent
+    _target_: jumanji.training.agents.a2c.a2c_agent.A2CAgent
     _partial_: True
     n_steps: ${training.env_steps_per_update}
     total_batch_size: ${training.envs_in_parallel}

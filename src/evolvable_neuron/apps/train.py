@@ -18,8 +18,38 @@ from chex import PRNGKey
 from hydra.utils import instantiate
 from jax.random import split as split_key
 from jumanji.wrappers import VmapAutoResetWrapper
-from evolvable_neuron.agent.types import ActingState, Agent, TrainingState
-from evolvable_neuron.agent import Evaluator
+from jumanji.training.agents.base import Agent
+from jumanji.training.types import ActingState, ActorCriticParams, ParamsState, TrainingState
+from jumanji.training.evaluator import Evaluator
+
+
+def write_params_state(params_state: ParamsState, path: str) -> None:
+    with open(path, "wb") as stream:
+        pickle.dump(jax.device_get(params_state), stream)
+
+
+def read_params_state(path: str) -> ParamsState:
+    def _only_first(x):
+        if isinstance(x, jax.Array) and x.shape[0] == 1:
+            return x[0]
+
+        if isinstance(x, tuple):
+            return tuple(_only_first(y) for y in x)
+
+        if isinstance(x, dict):
+            return {k: _only_first(v) for k, v in x.items()}
+
+    with open(path, "rb") as stream:
+        x = jax.device_put(pickle.load(stream))
+
+    return ParamsState(
+        params=ActorCriticParams(
+            actor=_only_first(x.params.actor),
+            critic=_only_first(x.params.critic),
+        ),
+        opt_state=x.opt_state,
+        update_count=x.update_count,
+    )
 
 
 def first_from_device(tree):
@@ -40,7 +70,7 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
     logger = instantiate(cfg.logger)
     env = VmapAutoResetWrapper(jum.make(cfg.environment_id))
     agent = instantiate(cfg.agent)(env)
-    training_state = _training_state(env, agent, train_key, cfg.get("params_path"))
+    training_state = _training_state(env, agent, train_key, cfg.get("agent_params_path"))
 
     epoch_steps = (
         cfg.training.envs_in_parallel
@@ -99,7 +129,10 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
             logger.write(data=first_from_device(metrics), label="train", env_steps=total_steps)
 
             last_epoch_t = train_timer.elapsed_time
-            remaining_t -= last_epoch_t
+            if epi > 0:
+                # We gift the first epoch, the duration of which is affected but initialization
+                # operations.
+                remaining_t -= last_epoch_t
             total_steps += epoch_steps
             epi += 1
 
@@ -128,9 +161,9 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
             with open(metrics_path, "w") as stream:
                 stream.write(str(first_from_device(metrics)))
 
-        weights_path = "params_state.pkl"
-        logging.info("Storing the learnt agent weights at %s", weights_path)
-        pickle.dump(training_state.params_state, weights_path)
+        params_path = "agent_params.pkl"
+        logging.info("Storing the parameters of the agent at %s", params_path)
+        write_params_state(training_state.params_state, params_path)
 
 
 def _training_state(
@@ -143,7 +176,11 @@ def _training_state(
     params_key, reset_key, acting_key = split_key(key, 3)
 
     # Initialize params
-    params_state = pickle.load(params_path) if params_path else agent.init_params(params_key)
+    if params_path:
+        logging.info("The parameters of the agent will be loaded from %s", params_path)
+        params_state = read_params_state(params_path)
+    else:
+        params_state = agent.init_params(params_key)
 
     # Initialize environment states
     num_local_devices = jax.local_device_count()
@@ -210,7 +247,7 @@ class Timer(AbstractContextManager):
 
     def _write_in_variable(self, data: Dict[str, float]) -> None:
         in_context_variables = dict(set(self._variables_exit).difference(self._variables_enter))
-        metrics_id = in_context_variables.get(self.out_var_name, None)
+        metrics_id = in_context_variables.get(self.out_var_name)
         if metrics_id is None:
             logging.debug(
                 "Timer did not find variable %s at the context manager level.", self.out_var_name
