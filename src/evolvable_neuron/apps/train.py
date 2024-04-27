@@ -23,38 +23,19 @@ from jumanji.training.types import ActingState, ActorCriticParams, ParamsState, 
 from jumanji.training.evaluator import Evaluator
 
 
-def write_params_state(params_state: ParamsState, path: str) -> None:
-    with open(path, "wb") as stream:
-        pickle.dump(jax.device_get(params_state), stream)
-
-
-def read_params_state(path: str) -> ParamsState:
-    def _only_first(x):
-        if isinstance(x, jax.Array) and x.shape[0] == 1:
-            return x[0]
-
-        if isinstance(x, tuple):
-            return tuple(_only_first(y) for y in x)
-
-        if isinstance(x, dict):
-            return {k: _only_first(v) for k, v in x.items()}
-
-    with open(path, "rb") as stream:
-        x = jax.device_put(pickle.load(stream))
-
-    return ParamsState(
-        params=ActorCriticParams(
-            actor=_only_first(x.params.actor),
-            critic=_only_first(x.params.critic),
-        ),
-        opt_state=x.opt_state,
-        update_count=x.update_count,
-    )
-
-
 def first_from_device(tree):
     squeeze_fn = lambda x: x[0] if isinstance(x, jnp.ndarray) else x
     return jax.tree_util.tree_map(squeeze_fn, tree)
+
+
+def write_params_state(params_state: ParamsState, path: str) -> None:
+    with open(path, "wb") as stream:
+        pickle.dump(first_from_device(params_state), stream)
+
+
+def read_params_state(path: str) -> ParamsState:
+    with open(path, "rb") as stream:
+        return jax.device_put(pickle.load(stream))
 
 
 @hydra.main(config_path="cfg", config_name="rubiks_cube")
@@ -70,7 +51,7 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
     logger = instantiate(cfg.logger)
     env = VmapAutoResetWrapper(jum.make(cfg.environment_id))
     agent = instantiate(cfg.agent)(env)
-    training_state = _training_state(env, agent, train_key, cfg.get("agent_params_path"))
+    training_state = _training_state(env, agent, train_key, cfg.get("params_path"))
 
     epoch_steps = (
         cfg.training.envs_in_parallel
@@ -161,8 +142,8 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
             with open(metrics_path, "w") as stream:
                 stream.write(str(first_from_device(metrics)))
 
-        params_path = "agent_params.pkl"
-        logging.info("Storing the parameters of the agent at %s", params_path)
+        params_path = "params_state.pkl"
+        logging.info("Storing the parameters of the agent and its training at %s", params_path)
         write_params_state(training_state.params_state, params_path)
 
 
@@ -177,7 +158,7 @@ def _training_state(
 
     # Initialize params
     if params_path:
-        logging.info("The parameters of the agent will be loaded from %s", params_path)
+        logging.info("Loading the parameters of the agent and its training from %s", params_path)
         params_state = read_params_state(params_path)
     else:
         params_state = agent.init_params(params_key)
