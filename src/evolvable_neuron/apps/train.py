@@ -35,7 +35,7 @@ def write_params_state(params_state: ParamsState, path: str) -> None:
 
 def read_params_state(path: str) -> ParamsState:
     with open(path, "rb") as stream:
-        return jax.device_put(pickle.load(stream))
+        return pickle.load(stream)
 
 
 @hydra.main(config_path="cfg", config_name="rubiks_cube")
