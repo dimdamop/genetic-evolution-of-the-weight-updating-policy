@@ -111,8 +111,7 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
 
             last_epoch_t = train_timer.elapsed_time
             if epi > 0:
-                # We gift the first epoch, the duration of which is affected but initialization
-                # operations.
+                # We gift the first epoch, whose duration is affected by initialization operations
                 remaining_t -= last_epoch_t
             total_steps += epoch_steps
             epi += 1
