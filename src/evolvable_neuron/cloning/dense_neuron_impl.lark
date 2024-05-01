@@ -142,6 +142,6 @@ assign : b_assign | s_assign | v_assign
 indented_assign : tab assign nl
 indented_ret : tab ret s_expr nl
 IMPORTS : "import jax.numpy as jnp\n\n\n"
-HEADER : "def dense_apply(params, inputs):\n"
+HEADER : "def forward(params, inputs):\n"
 PARAMS_UNPACKING : "    W, b, depth, s0, s1 = params\n"
 start : IMPORTS HEADER PARAMS_UNPACKING indented_assign* indented_ret
