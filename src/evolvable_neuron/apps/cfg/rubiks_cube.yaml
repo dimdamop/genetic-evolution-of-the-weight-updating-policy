@@ -49,14 +49,14 @@ agent:
     actor_critic_networks:
         _target_: jumanji.training.networks.actor_critic.ActorCriticNetworks
         policy_network:
-            _target_: jumanji.training.networks.rubiks_cube.actor_critic.make_actor_network
+            _target_: evolvable_neuron.networks.rubiks_cube.actor
             cube_embed_dim: 4
             time_limit: ${env.time_limit}
             step_count_embed_dim: 4
             dense_layer_dims: ${oc.decode:'[256, 256]'}
             num_actions: ${env.num_actions}
         value_network:
-            _target_: jumanji.training.networks.rubiks_cube.actor_critic.make_critic_network
+            _target_: evolvable_neuron.networks.rubiks_cube.critic
             cube_embed_dim: 4
             dense_layer_dims: ${oc.decode:'[256, 256]'}
             time_limit: ${env.time_limit}
