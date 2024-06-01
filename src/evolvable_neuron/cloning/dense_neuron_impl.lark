@@ -9,7 +9,7 @@ adjective : "aesthetic" -> aesthetic
     | "illustrative" -> illustrative
     | "juveline" -> juveline
     | "kinetic" -> kinetic
-    | "low" -> low
+    | "linear" -> linear
     | "melancholic" -> melancholic
     | "new" -> new
     | "old" -> old
@@ -30,7 +30,7 @@ grammar_and : "_and_"
 
 noun : "archer" -> archer
     | "banjo" -> banjo
-    | "crater" -> crater
+    | "combination" -> combination
     | "dragon" -> dragon
     | "elephant" -> elephant
     | "flame" -> flame
@@ -64,7 +64,6 @@ OR_KW : " or "
 ADD_KW : " + "
 MINUS_KW : " - "
 MUL_KW : " * "
-DIV_KW : " * "
 MIN_KW : "- "
 EQ_KW : " == "
 GR_KW : " > "
@@ -76,8 +75,9 @@ B : "b"
 DEPTH : "depth"
 S0 : "s0"
 S1 : "s1"
-W_VEC : "W"
-INPUTS : "inputs"
+STATE : "state"
+W_VEC : "w"
+INPUT_VEC : "input"
 IS_S0_ABOVE_S1 : "s0 > s1"
 
 sep : "_"
@@ -97,7 +97,7 @@ mean : "jnp.mean"
 
 b2b_op  : NOT_KW 
 bb2b_op : AND_KW | OR_KW 
-ss2s_op : ADD_KW | MINUS_KW | MUL_KW | DIV_KW 
+ss2s_op : ADD_KW | MINUS_KW | MUL_KW
 s2s_op : MIN_KW | INV_KW
 after_s2s_op : SQR_KW | SQRT_KW
 ss2b_op : GR_KW | EQ_KW | LE_KW 
@@ -105,8 +105,8 @@ vv2v_op : ADD_KW | MINUS_KW
 sv2v_op : ADD_KW | MINUS_KW | MUL_KW 
 
 bconst : IS_S0_ABOVE_S1
-sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1
-vconst : W_VEC | INPUTS
+sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1 | STATE
+vconst : W_VEC | INPUT_VEC
 
 b_varname : is sep noun sep adjective
 s_varname : adjective sep noun
@@ -140,8 +140,8 @@ s_assign : s_varname assign_kw  s_expr
 v_assign : v_varname assign_kw  v_expr
 assign : b_assign | s_assign | v_assign
 indented_assign : tab assign nl
-indented_ret : tab ret s_expr nl
+indented_ret : tab ret s_expr comma s_expr nl
 IMPORTS : "import jax.numpy as jnp\n\n\n"
-HEADER : "def forward(params, inputs):\n"
-PARAMS_UNPACKING : "    W, b, depth, s0, s1 = params\n"
+HEADER : "def dense(w_vec, b, aux_params, input_vec, depth, state):\n"
+PARAMS_UNPACKING : "    s0, s1 = aux_params\n"
 start : IMPORTS HEADER PARAMS_UNPACKING indented_assign* indented_ret

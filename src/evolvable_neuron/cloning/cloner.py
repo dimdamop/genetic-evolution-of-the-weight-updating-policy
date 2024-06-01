@@ -494,7 +494,7 @@ class Cloner(Transformer):
                 for expr in (left_expr, right_expr)
             ]
 
-            if any(is_one) and op_name in ("MUL_KW", "DIV_KW"):
+            if any(is_one) and op_name == "MUL_KW":
                 continue
 
             break
@@ -557,7 +557,7 @@ class Cloner(Transformer):
         )
 
     def new_s_const_expr(self) -> Tree:
-        # sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1
+        # sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1 | STATE
         # sconst -> s_const_expr
 
         const = _choice(self.rng, self.rules["sconst"].children)
@@ -640,7 +640,7 @@ class Cloner(Transformer):
         )
 
     def new_v_const_expr(self) -> Tree:
-        # vconst : W_VEC | INPUTS
+        # vconst : W_VEC | INPUT_VEC
         # vconst -> v_const_expr
 
         const = _choice(self.rng, self.rules["vconst"].children)

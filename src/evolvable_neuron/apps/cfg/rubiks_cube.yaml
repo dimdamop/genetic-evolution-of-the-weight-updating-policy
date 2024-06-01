@@ -12,13 +12,13 @@ environment_id: RubiksCube-partly-scrambled-v0
 evaluators:
     # evaluation of the action-selection scheme used during training
     stochastic:
-        _target_: jumanji.training.evaluator.Evaluator
+        _target_: evolvable_neuron.agent.Evaluator
         _partial_: True
         total_batch_size: 1024
         stochastic: True
     # evaluation of an argmax action-selection scheme
     greedy:
-        _target_: jumanji.training.evaluator.Evaluator
+        _target_: evolvable_neuron.agent.Evaluator
         _partial_: True
         total_batch_size: 1024
         stochastic: False
@@ -42,31 +42,29 @@ env:
     num_actions: 18
 
 agent:
-    _target_: jumanji.training.agents.a2c.a2c_agent.A2CAgent
+    _target_: evolvable_neuron.agent.a2c.Agent
     _partial_: True
     n_steps: ${training.env_steps_per_update}
     total_batch_size: ${training.envs_in_parallel}
-    actor_critic_networks:
-        _target_: jumanji.training.networks.actor_critic.ActorCriticNetworks
-        policy_network:
-            _target_: evolvable_neuron.networks.rubiks_cube.actor
-            cube_embed_dim: 4
-            time_limit: ${env.time_limit}
-            step_count_embed_dim: 4
-            dense_layer_dims: ${oc.decode:'[256, 256]'}
-            num_actions: ${env.num_actions}
-        value_network:
-            _target_: evolvable_neuron.networks.rubiks_cube.critic
-            cube_embed_dim: 4
-            dense_layer_dims: ${oc.decode:'[256, 256]'}
-            time_limit: ${env.time_limit}
-            step_count_embed_dim: 4
-        parametric_action_distribution:
-            _target_: jumanji.training.networks.parametric_distribution.FactorisedActionSpaceParametricDistribution
-            action_spec_num_values:
-                _target_: numpy.array
-                object: ${oc.decode:${env.action_spec_num_values}}
-                dtype: int32
+    policy:
+        _target_: evolvable_neuron.networks.rubiks_cube.actor
+        cube_embed_dim: 4
+        time_limit: ${env.time_limit}
+        step_count_embed_dim: 4
+        dense_layer_dims: ${oc.decode:'[256, 256]'}
+        num_actions: ${env.num_actions}
+    value:
+        _target_: evolvable_neuron.networks.rubiks_cube.critic
+        cube_embed_dim: 4
+        dense_layer_dims: ${oc.decode:'[256, 256]'}
+        time_limit: ${env.time_limit}
+        step_count_embed_dim: 4
+    parametric_action_distribution:
+        _target_: jumanji.training.networks.parametric_distribution.FactorisedActionSpaceParametricDistribution
+        action_spec_num_values:
+            _target_: numpy.array
+            object: ${oc.decode:${env.action_spec_num_values}}
+            dtype: int32
 
     optimizer:
         _target_: optax.adam
