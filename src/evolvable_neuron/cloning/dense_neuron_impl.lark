@@ -90,10 +90,9 @@ rpar : ")"
 comma: ", "
 assign_kw : " = "
 ret : "return "
-if : " if "
-else : " else "
 dot : "jnp.dot"
 mean : "jnp.mean"
+where : "jnp.where"
 
 b2b_op  : NOT_KW 
 bb2b_op : AND_KW | OR_KW 
@@ -126,13 +125,13 @@ s_expr : s2s_op s_expr                  -> s2s_expr
     | dot lpar v_expr comma v_expr rpar -> vprod_expr
     | mean lpar v_expr rpar             -> vmean_expr
     | sconst                            -> s_const_expr
-    | s_expr if b_expr else s_expr      -> s_ifelse_expr
+    | where lpar b_expr comma s_expr comma s_expr rpar -> s_ifelse_expr
     | s_varname                         -> s_var_expr
 
 v_expr : s_expr sv2v_op v_expr      -> sv2v_expr
     | v_expr vv2v_op v_expr         -> vv2v_expr
     | vconst                        -> v_const_expr
-    | v_expr if b_expr else v_expr  -> v_ifelse_expr
+    | where lpar b_expr comma v_expr comma v_expr rpar -> v_ifelse_expr
     | v_varname                     -> v_var_expr
 
 b_assign : b_varname assign_kw  b_expr
