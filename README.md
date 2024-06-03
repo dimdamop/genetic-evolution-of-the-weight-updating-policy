@@ -28,6 +28,6 @@ ideas are the following:
 
 # Legal
 
-A substantial portion of the Python code included in this repository is a slightly modified copy of
-that of `jumanji.training` of InstaDeep Ltd. The modules that are such copies list the corresponding
+A substantial portion of the Python code included in this repository is a minorly modified copy of
+the module `jumanji.training` of InstaDeep Ltd. The modules that are such copies list the corresponding
 modifications that took place at the end of their header.

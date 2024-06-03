@@ -2,25 +2,23 @@
 import inspect
 import logging
 import pickle
-
 from contextlib import AbstractContextManager
 from functools import partial
 from time import perf_counter
-from typing import Any, Dict, Tuple, Literal
+from typing import Any, Dict, Literal, Tuple
 
 import hydra
 import jax
 import jax.numpy as jnp
 import jumanji as jum
 import omegaconf
-
 from chex import PRNGKey
 from hydra.utils import instantiate
 from jax.random import split as split_key
 from jumanji.wrappers import VmapAutoResetWrapper
-from jumanji.training.agents.base import Agent
-from evolvable_neuron.agent import ActingState, ParamsState, TrainState
-from evolvable_neuron.agent.evaluator import Evaluator
+
+from evolvable_neuron.agent import Evaluator
+from evolvable_neuron.agent.types import ActingState, ParamsState, TrainState
 
 
 def first_from_device(tree):
@@ -184,7 +182,8 @@ def _train_state(env: jum.Environment, agent, key: PRNGKey, params_path: str | N
     )
 
     return TrainState(
-        params=jax.device_put_replicated(params_state, jax.local_devices()), acting=acting_state,
+        params=jax.device_put_replicated(params_state, jax.local_devices()),
+        acting=acting_state,
     )
 
 

@@ -1,5 +1,6 @@
 from argparse import ArgumentParser, Namespace
-from logging import DEBUG as LOG_LEVEL, basicConfig, info
+from logging import DEBUG as LOG_LEVEL
+from logging import basicConfig, info
 from pathlib import Path
 from sys import stdout
 
@@ -55,7 +56,7 @@ def main():
         info("Cloning iteration %d", cloning_iter)
         # We are not removing any unused variables if the minimum number of cloning iteratios has
         # been reached, because the definition of these variables might be the only mutation that
-        # has happened so far- if we undo them, then 
+        # has happened so far- if we undo them, then
         cloner.remove_unused_variables = cloning_iter >= args.min_cloning_iters
         tree = cloner.transform(tree)
         has_mutated = has_mutated or cloner.has_mutated

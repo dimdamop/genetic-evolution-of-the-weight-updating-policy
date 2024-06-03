@@ -1,7 +1,25 @@
-import flax.linen as nn
-from flax.typing import Array
+# Copyright 2022 InstaDeep Ltd. All rights reserved.
+# Copyright 2024 Dimitrios Damopoulos. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+# in compliance with the License. You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software distributed under the License
+# is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+# or implied. See the License for the specific language governing permissions and limitations under
+# the License.
+#
+# This source code is a modified version of `jumanji.training.rubiks_cube.actor_critic`, aiming
+# mainly at building on top of `flax` instead of `haiku`.
 
-from . import base
+import flax.linen as nn
+from flax.typing import Array, Tuple
+from jax import numpy as jnp
+from jumanji.environments.logic.rubiks_cube.types import Observation
+
+from evolvable_neuron.networks import base
 
 
 class Torso(nn.Module):
@@ -11,22 +29,19 @@ class Torso(nn.Module):
     face_len: int
 
     @nn.compact
-    def __call__(
-        self,
-        observation_cube: Array,
-        observation_step_count: Array,
-        step_count_embedder_state: Array,
-    ) -> Array:
+    def __call__(self, observation: Observation) -> Array:
 
         # Cube embedding
         cube_embedding = base.Embed(
             vocab_size=self.face_len,
             embed_dim=self.cube_embed_dim,
-        )(observation_cube).reshape(*observation_cube.shape[:-3], -1)
+        )(
+            observation.cube
+        ).reshape(*observation.cube.shape[:-3], -1)
 
         # Step count embedding
         step_count_embedding = base.Dense(self.step_count_embed_dim)(
-            observation_step_count[:, None] / self.time_limit, step_count_embedder_state
+            observation.step_count[:, None] / self.time_limit
         )
 
         return jnp.concatenate([cube_embedding, step_count_embedding], axis=-1)
@@ -36,21 +51,21 @@ class Actor(nn.Module):
     cube_embed_dim: int
     time_limit: int
     step_count_embed_dim: int
-    face_len: int
     dense_layer_dims: Tuple[int]
     num_actions: int
+    face_len: int = 6
 
     @nn.compact
-    def __call__(self, observation_cube: Array, observation_step_count: Array) -> Array:
+    def __call__(self, observation: Observation) -> Array:
 
         embedding = Torso(
             cube_embed_dim=self.cube_embed_dim,
             time_limit=self.time_limit,
             step_count_embed_dim=self.step_count_embed_dim,
             face_len=self.face_len,
-        )(observation_cube=observation_cube, observation_step_count=observation_step_count)
+        )(observation)
 
-        return base.MLP((*self.dense_layer_dims, self.num_actions))(embedding)
+        return base.MLP((*self.dense_layer_dims, self.num_actions), depth=1)(embedding)
 
 
 class Critic(nn.Module):
@@ -58,16 +73,16 @@ class Critic(nn.Module):
     time_limit: int
     step_count_embed_dim: int
     dense_layer_dims: Tuple[int]
+    face_len: int = 6
 
     @nn.compact
-    def __call__(self, observation_cube: Array, observation_step_count: Array) -> Array:
+    def __call__(self, observation: Array) -> Array:
 
         embedding = Torso(
             cube_embed_dim=self.cube_embed_dim,
             time_limit=self.time_limit,
             step_count_embed_dim=self.step_count_embed_dim,
             face_len=self.face_len,
-        )(observation_cube=observation_cube, observation_step_count=observation_step_count)
+        )(observation)
 
-        return jnp.squeeze(base.MLP((*self.dense_layer_dims, 1))(embedding), value=-1)
-
+        return jnp.squeeze(base.MLP((*self.dense_layer_dims, 1), depth=1)(embedding), value=-1)

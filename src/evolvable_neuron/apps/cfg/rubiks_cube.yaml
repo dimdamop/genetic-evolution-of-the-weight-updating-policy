@@ -42,19 +42,19 @@ env:
     num_actions: 18
 
 agent:
-    _target_: evolvable_neuron.agent.a2c.Agent
+    _target_: evolvable_neuron.agent.Agent
     _partial_: True
     n_steps: ${training.env_steps_per_update}
     total_batch_size: ${training.envs_in_parallel}
     policy:
-        _target_: evolvable_neuron.networks.rubiks_cube.actor
+        _target_: evolvable_neuron.networks.Actor
         cube_embed_dim: 4
         time_limit: ${env.time_limit}
         step_count_embed_dim: 4
         dense_layer_dims: ${oc.decode:'[256, 256]'}
         num_actions: ${env.num_actions}
     value:
-        _target_: evolvable_neuron.networks.rubiks_cube.critic
+        _target_: evolvable_neuron.networks.Critic
         cube_embed_dim: 4
         dense_layer_dims: ${oc.decode:'[256, 256]'}
         time_limit: ${env.time_limit}

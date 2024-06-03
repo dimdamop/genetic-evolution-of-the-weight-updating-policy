@@ -17,13 +17,13 @@
 # - No type checking of the agent being evaluated
 
 import functools
-from typing import Any, Dict, FrozenDict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import chex
 import haiku as hk
 import jax
+from flax.core import FrozenDict
 from jax import numpy as jnp
-
 from jumanji.env import Environment
 from jumanji.training.types import ActingState, ParamsState
 
@@ -53,7 +53,7 @@ class Evaluator:
         self.stochastic = stochastic
 
     def _eval_one_episode(
-            self, policy_params: Optional[FrozenDict[str, Any]], key: chex.PRNGKey
+        self, policy_params: Optional[FrozenDict[str, Any]], key: chex.PRNGKey
     ) -> Dict:
         policy = self.agent.make_policy(policy_params=policy_params, stochastic=self.stochastic)
 
@@ -118,9 +118,7 @@ class Evaluator:
 
         return eval_metrics
 
-    def run_evaluation(
-        self, params_state: Optional[ParamsState], eval_key: chex.PRNGKey
-    ) -> Dict:
+    def run_evaluation(self, params_state: Optional[ParamsState], eval_key: chex.PRNGKey) -> Dict:
         """Run one batch of evaluations."""
         eval_keys = jax.random.split(eval_key, self.num_global_devices).reshape(
             self.num_workers, self.num_local_devices, -1
@@ -131,4 +129,3 @@ class Evaluator:
             eval_keys_per_worker,
         )
         return eval_metrics
-

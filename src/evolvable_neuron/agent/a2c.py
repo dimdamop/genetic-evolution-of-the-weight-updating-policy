@@ -14,10 +14,11 @@
 # This source code is a copy of `jumanji.training.agents.a2c.a2c_agent` with only very minor
 # modifications. In particular:
 # - the `haiku.Params` type has been replaced by `FrozenDict[str, Any`]
-# - The loss is computed using `TrainState` state, directly
+# - The loss is computed using `TrainState` directly, as opposed to passing down the encapsulated
+#   objects.
 
 import functools
-from typing import Any, Callable, Dict, FrozenDict, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 import chex
 import jax
@@ -25,11 +26,11 @@ import jax.numpy as jnp
 import optax
 import rlax
 from flax import linen as nn
-
+from flax.core import FrozenDict
 from jumanji.env import Environment
-from jumanji.training.networks.actor_critic import ActorCriticNetworks
 from jumanji.training.networks.parametric_distribution import ParametricDistribution
-from .types import TrainState, ParamsState, Transition
+
+from evolvable_neuron.agent.types import ActingState, ParamsState, TrainState, Transition
 
 
 class Agent:
@@ -78,7 +79,7 @@ class Agent:
 
         return ParamsState(
             actor=self.policy.init(actor_key, dummy_obs)["params"],
-            critic=self.value.init(critic_key, dummy_obs))["params"],
+            critic=self.value.init(critic_key, dummy_obs)["params"],
             opt=self.optimizer.init(params),
             update_count=jnp.array(0, float),
         )
@@ -102,7 +103,7 @@ class Agent:
         return train_state, metrics
 
     def a2c_loss(self, train_state: TrainState) -> Tuple[float, Tuple[ActingState, Dict]]:
-        parametric_action_distribution = (self.parametric_action_distribution)
+        parametric_action_distribution = self.parametric_action_distribution
         value_apply = self.value.apply
 
         acting_state, data = self.rollout(
@@ -128,7 +129,10 @@ class Agent:
             in_axes=1,
             out_axes=1,
         )(
-            value_tm1, data.reward, discounts, value_t,
+            value_tm1,
+            data.reward,
+            discounts,
+            value_t,
         )
 
         # Compute the critic loss before potentially normalizing the advantages.
@@ -142,9 +146,7 @@ class Agent:
         policy_loss = -jnp.mean(jax.lax.stop_gradient(advantage) * data.log_prob)
 
         # Compute the entropy loss, i.e. negative of the entropy.
-        entropy = jnp.mean(
-            parametric_action_distribution.entropy(data.logits, acting_state.key)
-        )
+        entropy = jnp.mean(parametric_action_distribution.entropy(data.logits, acting_state.key))
         entropy_loss = -entropy
 
         total_loss = self.l_pg * policy_loss + self.l_td * critic_loss + self.l_en * entropy_loss
@@ -166,26 +168,20 @@ class Agent:
         self,
         policy_params: FrozenDict[str, Any],
         stochastic: bool = True,
-    ) -> Callable[
-        [Any, chex.PRNGKey], Tuple[chex.Array, Tuple[chex.Array, chex.Array]]
-    ]:
+    ) -> Callable[[Any, chex.PRNGKey], Tuple[chex.Array, Tuple[chex.Array, chex.Array]]]:
         policy_network = self.policy
-        parametric_action_distribution = (self.actor_critic_networks.parametric_action_distribution)
+        parametric_action_distribution = self.parametric_action_distribution
 
         def policy(
             observation: Any, key: chex.PRNGKey
         ) -> Tuple[chex.Array, Tuple[chex.Array, chex.Array]]:
             logits = policy_network.apply(policy_params, observation)
             if stochastic:
-                raw_action = parametric_action_distribution.sample_no_postprocessing(
-                    logits, key
-                )
+                raw_action = parametric_action_distribution.sample_no_postprocessing(logits, key)
                 log_prob = parametric_action_distribution.log_prob(logits, raw_action)
             else:
                 del key
-                raw_action = parametric_action_distribution.mode_no_postprocessing(
-                    logits
-                )
+                raw_action = parametric_action_distribution.mode_no_postprocessing(logits)
                 # log_prob is log(1), i.e. 0, for a greedy policy (deterministic distribution).
                 log_prob = jnp.zeros_like(
                     parametric_action_distribution.log_prob(logits, raw_action)
@@ -197,7 +193,7 @@ class Agent:
 
     def rollout(
         self,
-        policy_params: FrozenDict[str, Any]
+        policy_params: FrozenDict[str, Any],
         acting_state: ActingState,
     ) -> Tuple[ActingState, Transition]:
         """Rollout for training purposes.

@@ -18,11 +18,11 @@
 # - Various variables have been renamed, such as `TrainingState` getting renamed to `TrainState`
 # - More docstrings
 
-from typing import Any, Dict, FrozenDict, NamedTuple, Optional
+from typing import Any, Dict, NamedTuple, Optional
 
 import chex
 import optax
-
+from flax.core import FrozenDict
 from jumanji.types import TimeStep
 
 
