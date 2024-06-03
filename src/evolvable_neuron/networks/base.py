@@ -49,7 +49,7 @@ class Dense(nn.Module):
     def __call__(self, inputs: Array) -> Array:
 
         W = self.param("W", self.kernel_init, (self.out_feats, jnp.shape(inputs)[-1]))
-        b_vec = self.param("b_vec", self.bias_init, (self.out_feats,))
+        b_vec = self.param("b_vec", self.bias_init, self.out_feats)
 
         # `state_vec` is not supposed to be updated via gradient descent. Rather, it is updated
         # iteratively by :func:`dense` itself by some fixed transformation which is subject to
@@ -58,7 +58,7 @@ class Dense(nn.Module):
             "self_updated",
             "state_vec",
             lambda shape: self.bias_init(self.make_rng("params"), shape),
-            (self.out_feats,)
+            self.out_feats,
         )
         Aux = self.param("Aux", self.bias_init, (self.out_feats, 2))
         depth = self.depth
