@@ -63,6 +63,7 @@ class Agent:
         self.n_steps = n_steps
         self.policy = policy
         self.value = value
+        self.parametric_action_distribution = parametric_action_distribution 
         self.optimizer = optimizer
         self.normalize_advantage = normalize_advantage
         self.discount_factor = discount_factor
@@ -77,10 +78,12 @@ class Agent:
             lambda x: x[None, ...], self.observation_spec.generate_value()
         )  # Add batch dim
 
+        actor = self.policy.init(actor_key, dummy_obs)["params"]
+        critic = self.value.init(critic_key, dummy_obs)["params"]
         return ParamsState(
-            actor=self.policy.init(actor_key, dummy_obs)["params"],
-            critic=self.value.init(critic_key, dummy_obs)["params"],
-            opt=self.optimizer.init(params),
+            actor=actor,
+            critic=critic,
+            opt=self.optimizer.init((actor, critic)),
             update_count=jnp.array(0, float),
         )
 
@@ -91,12 +94,10 @@ class Agent:
         grad, (acting_state, metrics) = jax.grad(self.a2c_loss, has_aux=True)(train_state)
         grad, metrics = jax.lax.pmean((grad, metrics), "devices")
         updates, opt = self.optimizer.update(grad, train_state.params.opt)
-        params = optax.apply_updates(train_state.params.params, updates)
+        ac, cr = optax.apply_updates((train_state.params.actor, train_state.params.critic), updates)
         train_state = TrainState(
             params=ParamsState(
-                params=params,
-                opt=opt,
-                update_count=train_state.params.update_count + 1,
+                actor=ac, critic=cr, opt=opt, update_count=train_state.params.update_count + 1,
             ),
             acting_state=acting_state,
         )

@@ -25,9 +25,9 @@ from jax import lax
 from jax import numpy as jnp
 
 
-def linear_relu(w, b, aux_params, inputs, depth, state):
+def linear_relu(w, b, aux_params, inp, depth, state):
     s0, s1 = aux_params
-    linear_combination = jnp.dot(w, inputs) + b
+    linear_combination = jnp.dot(w, inp) + b
     return jnp.where(linear_combination > 0, linear_combination, 0), state
 
 
@@ -50,26 +50,23 @@ class Dense(nn.Module):
 
         W = self.param("W", self.kernel_init, (self.out_feats, jnp.shape(inputs)[-1]))
         b_vec = self.param("b_vec", self.bias_init, self.out_feats)
-
+        Aux = self.param("Aux", self.bias_init, (self.out_feats, 2))
         # `state_vec` is not supposed to be updated via gradient descent. Rather, it is updated
-        # iteratively by :func:`dense` itself by some fixed transformation which is subject to
-        # evolution (like everything in :func:`dense`).
+        # iteratively by :func:`dense` itself by some fixed transformation which, like everything in
+        # :func:`dense`, is subject to evolution.
+        depth = self.depth
         state_vec = self.variable(
             "self_updated",
             "state_vec",
             lambda shape: self.bias_init(self.make_rng("params"), shape),
             self.out_feats,
         )
-        Aux = self.param("Aux", self.bias_init, (self.out_feats, 2))
-        depth = self.depth
 
-        multi_output_dense = jax.vmap(
-            lambda w, b, aux_params, state: dense(w, b, aux_params, inputs, depth, state),
-        )
+        # (w, b, aux_params, inp, depth, state)
+        multi_output_dense = jax.vmap(dense, in_axes=(0, 0, 0, None, None, 0))
+        outT, state_vec.value = multi_output_dense(W, b_vec, Aux, inputs.T, depth, state_vec.value)
 
-        output, state_vec.value = multi_output_dense(W, b_vec, Aux, state_vec.value)
-
-        return output.T
+        return outT.T
 
 
 class MLP(nn.Module):
@@ -80,16 +77,21 @@ class MLP(nn.Module):
     bias_init: Initializer = initializers.zeros_init()
     depth: int = 0
 
-    @nn.compact
-    def __call__(self, x: Array) -> Array:
-        for index, out_feats in enumerate(self.layer_feats):
-            x = Dense(
+    def setup(self):
+        self.layers = [
+            Dense(
                 out_feats=out_feats,
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
                 depth=self.depth + index,
                 name="dense_%d" % index,
-            )(x)
+            )
+            for index, out_feats in enumerate(self.layer_feats)
+        ]
+        
+    def __call__(self, x: Array) -> Array:
+        for layer in self.layers:
+            x = layer(x)
         return x
 
 
@@ -102,10 +104,12 @@ class Embed(nn.Module):
     #: Dimensionality of each embedding vector
     embed_dim: int
 
-    @nn.compact
-    def __call__(self, inputs):
-        embedding = self.param(
+    def setup(self):
+        self.embedding = self.param(
             "embedding", nn.initializers.xavier_uniform(), (self.vocab_size, self.embed_dim)
         )
-
-        return embedding[inputs]
+        
+    def __call__(self, inputs):
+        embedding = self.embedding
+        embedded = embedding[inputs]
+        return embedded

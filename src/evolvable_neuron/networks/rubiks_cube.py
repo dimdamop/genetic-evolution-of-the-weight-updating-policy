@@ -28,23 +28,17 @@ class Torso(nn.Module):
     step_count_embed_dim: int
     face_len: int
 
-    @nn.compact
-    def __call__(self, observation: Observation) -> Array:
-
-        # Cube embedding
-        cube_embedding = base.Embed(
+    def setup(self):
+        self.obs_embedder = base.Embed(
             vocab_size=self.face_len,
             embed_dim=self.cube_embed_dim,
-        )(
-            observation.cube
-        ).reshape(*observation.cube.shape[:-3], -1)
-
-        # Step count embedding
-        step_count_embedding = base.Dense(self.step_count_embed_dim)(
-            observation.step_count[:, None] / self.time_limit
         )
+        self.step_embedder = base.Dense(self.step_count_embed_dim)
 
-        return jnp.concatenate([cube_embedding, step_count_embedding], axis=-1)
+    def __call__(self, observation: Observation) -> Array:
+        embedded_obs = self.obs_embedder(observation.cube).reshape(*observation.cube.shape[:-3], -1)
+        embedded_step = self.step_embedder(observation.step_count[:, None] / self.time_limit)
+        return jnp.concatenate([embedded_obs, embedded_step], axis=-1)
 
 
 class Actor(nn.Module):
@@ -55,17 +49,19 @@ class Actor(nn.Module):
     num_actions: int
     face_len: int = 6
 
-    @nn.compact
-    def __call__(self, observation: Observation) -> Array:
-
-        embedding = Torso(
+    def setup(self):
+        self.obs_embedder = Torso(
             cube_embed_dim=self.cube_embed_dim,
             time_limit=self.time_limit,
             step_count_embed_dim=self.step_count_embed_dim,
             face_len=self.face_len,
-        )(observation)
-
-        return base.MLP((*self.dense_layer_dims, self.num_actions), depth=1)(embedding)
+        )
+        self.mlp = base.MLP((*self.dense_layer_dims, self.num_actions), depth=1)
+    
+    def __call__(self, observation: Observation) -> Array:
+        embedded_obs = self.obs_embedder(observation)
+        latent = self.mlp(embedded_obs)
+        return latent
 
 
 class Critic(nn.Module):
@@ -75,14 +71,16 @@ class Critic(nn.Module):
     dense_layer_dims: Tuple[int]
     face_len: int = 6
 
-    @nn.compact
-    def __call__(self, observation: Array) -> Array:
-
-        embedding = Torso(
+    def setup(self):
+        self.obs_embedder = Torso(
             cube_embed_dim=self.cube_embed_dim,
             time_limit=self.time_limit,
             step_count_embed_dim=self.step_count_embed_dim,
             face_len=self.face_len,
-        )(observation)
+        )
+        self.mlp = base.MLP((*self.dense_layer_dims, 1), depth=1)
 
-        return jnp.squeeze(base.MLP((*self.dense_layer_dims, 1), depth=1)(embedding), value=-1)
+    def __call__(self, observation: Array) -> Array:
+        embedded_obs = self.obs_embedder(observation)
+        latent = self.mlp(embedded_obs)
+        return jnp.squeeze(latent, axis=-1)
