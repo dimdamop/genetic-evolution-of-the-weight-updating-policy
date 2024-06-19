@@ -47,14 +47,14 @@ agent:
     n_steps: ${training.env_steps_per_update}
     total_batch_size: ${training.envs_in_parallel}
     policy:
-        _target_: evolvable_neuron.networks.Actor
+        _target_: evolvable_neuron.modules.Actor
         cube_embed_dim: 4
         time_limit: ${env.time_limit}
         step_count_embed_dim: 4
         dense_layer_dims: ${oc.decode:'[256, 256]'}
         num_actions: ${env.num_actions}
     value:
-        _target_: evolvable_neuron.networks.Critic
+        _target_: evolvable_neuron.modules.Critic
         cube_embed_dim: 4
         dense_layer_dims: ${oc.decode:'[256, 256]'}
         time_limit: ${env.time_limit}

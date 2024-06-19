@@ -4,7 +4,7 @@ import optax
 import pytest
 
 from ..artificial_dataset import batch_iterator
-from evolvable_neuron.networks.base import MLP
+from evolvable_neuron.modules.base import MLP
 
 
 BATCH_SIZE = 16
@@ -21,5 +21,5 @@ def tx(lr: float):
 
 
 @pytest.fixture
-def network(layer_feats: Tuple[int]):
+def mlp_module(layer_feats: Tuple[int]):
     return MLP(layer_feats=layer_feats)

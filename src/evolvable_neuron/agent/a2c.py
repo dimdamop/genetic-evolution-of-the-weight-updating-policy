@@ -24,7 +24,7 @@ import optax
 import rlax
 from flax import linen as nn
 from jumanji.env import Environment
-from jumanji.training.networks.parametric_distribution import ParametricDistribution
+from jumanji.training.modules.parametric_distribution import ParametricDistribution
 
 from evolvable_neuron.agent.types import (
     ActingState,

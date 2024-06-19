@@ -1,6 +1,6 @@
 import pytest
 
-from evolvable_neuron.networks import Actor, Critic
+from evolvable_neuron.modules import Actor, Critic
 
 
 @pytest.fixture

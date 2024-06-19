@@ -10,7 +10,7 @@ import pytest
     ("resize_to", "layer_feats", "lr"),
     (((16, 32), [32, 32, 1], 1e-3), ((48, 32), [32, 32, 8, 1], 1e-4)),
 )
-def test_batched_supervised_regression(ds, network, tx) -> None:
+def test_supervised_regression_with_mlp(ds, mlp_module, tx) -> None:
 
     def update_step(apply_fn, batch, opt_state, params, state):
         def loss(params):
@@ -29,14 +29,14 @@ def test_batched_supervised_regression(ds, network, tx) -> None:
 
     batch = next(iter(ds))
     img = batch["img"][0].numpy().reshape(-1)
-    variables = network.init(jax.random.key(0), img)
+    variables = mlp_module.init(jax.random.key(0), img)
     state, params = flax.core.pop(variables, "params")
     del variables
     opt_state = tx.init(params)
 
     batched_update_step = jax.vmap(
         lambda x, y: update_step(
-            apply_fn=network.apply,
+            apply_fn=mlp_module.apply,
             x=x.reshape(-1),
             y_true=y,
             opt_state=opt_state,

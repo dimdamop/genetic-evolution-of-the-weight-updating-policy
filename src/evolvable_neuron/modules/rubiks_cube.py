@@ -19,7 +19,7 @@ from flax.typing import Array, Tuple
 from jax import numpy as jnp
 from jumanji.environments.logic.rubiks_cube.types import Observation
 
-from evolvable_neuron.networks import base
+from evolvable_neuron.modules import base
 
 
 class Torso(nn.Module):
