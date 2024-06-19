@@ -8,7 +8,7 @@ from .samples import sample_element
 
 
 NUM_PARALLEL_CALLS = AUTOTUNE
-#NUM_SAMPLES: int | None = 70000
+# NUM_SAMPLES: int | None = 70000
 NUM_SAMPLES: int | None = None
 
 
@@ -36,10 +36,10 @@ def gen():
 def resize_element(element: dict, height: int, width: int) -> dict:
 
     element["img"] = tf.image.resize_with_pad(
-            image=element["img"],
-            target_height=height,
-            target_width=width,
-        )
+        image=element["img"],
+        target_height=height,
+        target_width=width,
+    )
 
     element["mask"] = tf.image.resize_with_pad(
         image=tf.expand_dims(element["mask"], -1),

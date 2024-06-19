@@ -128,7 +128,7 @@ class Agent:
             last_observation,
         )
 
-        value = jax.vmap(value_apply))(observation)
+        value = jax.vmap(value_apply)(observation)
         discounts = jnp.asarray(self.discount_factor * data.discount, float)
         value_tm1 = value[:-1]
         value_t = value[1:]
