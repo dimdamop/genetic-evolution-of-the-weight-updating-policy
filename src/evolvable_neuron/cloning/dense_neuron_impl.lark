@@ -75,10 +75,10 @@ B : "b"
 DEPTH : "depth"
 S0 : "s0"
 S1 : "s1"
-STATE : "state"
+MEMORY : "memory"
 W_VEC : "w"
 INPUT_VEC : "inp"
-IS_STATE_POSITIVE : "state > 0"
+IS_MEMORY_POSITIVE : "memory > 0"
 
 sep : "_"
 plural : "s"
@@ -103,8 +103,8 @@ ss2b_op : GR_KW | EQ_KW | LE_KW
 vv2v_op : ADD_KW | MINUS_KW 
 sv2v_op : ADD_KW | MINUS_KW | MUL_KW 
 
-bconst : IS_STATE_POSITIVE
-sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1 | STATE
+bconst : IS_MEMORY_POSITIVE
+sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1 | MEMORY
 vconst : W_VEC | INPUT_VEC
 
 b_varname : is sep noun sep adjective
@@ -141,6 +141,6 @@ assign : b_assign | s_assign | v_assign
 indented_assign : tab assign nl
 indented_ret : tab ret s_expr comma s_expr nl
 IMPORTS : "import jax.numpy as jnp\n\n\n"
-HEADER : "def dense(w, b, aux_params, inp, depth, state):\n"
+HEADER : "def dense(w, b, aux_params, inp, depth, memory):\n"
 PARAMS_UNPACKING : "    s0, s1 = aux_params\n"
 start : IMPORTS HEADER PARAMS_UNPACKING indented_assign* indented_ret

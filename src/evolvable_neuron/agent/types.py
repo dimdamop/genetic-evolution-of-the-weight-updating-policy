@@ -39,11 +39,16 @@ class Transition(NamedTuple):
     extras: Optional[Dict]
 
 
+class NetworkVariables(NamedTuple):
+    backprop: FrozenDict[str, Any]
+    memory: FrozenDict[str, Any]
+
+
 class ParamsState(NamedTuple):
     """Container for the variables used during the training of an agent."""
 
-    actor: FrozenDict[str, Any]
-    critic: FrozenDict[str, Any]
+    actor: NetworkVariables
+    critic: NetworkVariables
     opt: optax.OptState
 
     # Not used anywhere, but the original `jumanji` implementation has it and

@@ -51,3 +51,7 @@ include_trailing_comma = true
 
 [tool.flake8]
 max-line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["tests/artificial_dataset"]

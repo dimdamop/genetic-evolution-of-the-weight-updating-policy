@@ -25,10 +25,10 @@ from jax import lax
 from jax import numpy as jnp
 
 
-def linear_relu(w, b, aux_params, inp, depth, state):
+def linear_relu(w, b, aux_params, inp, depth, memory):
     s0, s1 = aux_params
     linear_combination = jnp.dot(w, inp) + b
-    return jnp.where(linear_combination > 0, linear_combination, 0), state
+    return jnp.where(linear_combination > 0, linear_combination, 0), memory
 
 
 try:
@@ -44,27 +44,35 @@ class Dense(nn.Module):
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
     depth: int = 0
+    update_memory: bool = True
 
     @nn.compact
-    def __call__(self, inputs: Array) -> Array:
+    def __call__(self, inputs: Array, update_memory: bool | None = None) -> Array:
+
+        # `__call__` takes priority over `__init__`
+        if update_memory is None:
+            update_memory = self.update_memory
 
         W = self.param("W", self.kernel_init, (self.out_feats, jnp.shape(inputs)[-1]))
         b_vec = self.param("b_vec", self.bias_init, self.out_feats)
         Aux = self.param("Aux", self.bias_init, (self.out_feats, 2))
-        # `state_vec` is not supposed to be updated via gradient descent. Rather, it is updated
+        # `memory_vec` is not supposed to be updated via gradient descent. Rather, it is updated
         # iteratively by :func:`dense` itself by some fixed transformation which, like everything in
         # :func:`dense`, is subject to evolution.
         depth = self.depth
-        state_vec = self.variable(
+        mem_vec = self.variable(
             "self_updated",
-            "state_vec",
+            "memory",
             lambda shape: self.bias_init(self.make_rng("params"), shape),
             self.out_feats,
         )
 
-        # (w, b, aux_params, inp, depth, state)
+        # (w, b, aux_params, inp, depth, memory)
         multi_output_dense = jax.vmap(dense, in_axes=(0, 0, 0, None, None, 0))
-        outT, state_vec.value = multi_output_dense(W, b_vec, Aux, inputs.T, depth, state_vec.value)
+        outT, new_mem = multi_output_dense(W, b_vec, Aux, inputs.T, depth, mem_vec.value)
+
+        if update_memory:
+            mem_vec.value = new_mem
 
         return outT.T
 
@@ -88,7 +96,7 @@ class MLP(nn.Module):
             )
             for index, out_feats in enumerate(self.layer_feats)
         ]
-        
+
     def __call__(self, x: Array) -> Array:
         for layer in self.layers:
             x = layer(x)
@@ -108,7 +116,7 @@ class Embed(nn.Module):
         self.embedding = self.param(
             "embedding", nn.initializers.xavier_uniform(), (self.vocab_size, self.embed_dim)
         )
-        
+
     def __call__(self, inputs):
         embedding = self.embedding
         embedded = embedding[inputs]

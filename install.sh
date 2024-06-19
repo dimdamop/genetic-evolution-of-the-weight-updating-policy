@@ -13,5 +13,5 @@ pip install \
     jumanji \
     tensorboardX \
     neptune \
-    dm-haiku \
-    rlax
+    rlax \
+    pytest

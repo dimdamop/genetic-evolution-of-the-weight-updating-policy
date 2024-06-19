@@ -5,26 +5,20 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File with Arguments",
+            "name": "train",
             "type": "debugpy",
             "request": "launch",
             "justMyCode": true,
-            "program": "${file}",
+            "program": "${workspaceFolder}/src/evolvable_neuron/apps/train.py",
             "console": "integratedTerminal",
             "args": [
-                "--src",
-                "${workspaceFolder}/playground/vanilla_dense_neuron.py",
-                "--dst",
-                "${workspaceFolder}/playground/example_dense_neuron.py",
-                "--mutation",
-                ".05",
-                "--new-expr-pull",
-                ".1",
-                "--min-cloning",
-                "14",
-                "--random-seed",
-                "50",
-                "--must-mutate",
+                "--config-name=rubiks_cube",
+                "++agent.discount_factor=0.99",
+                "++agent.bootstrapping_factor=0.95",
+                "++agent.l_pg=1.0",
+                "++agent.l_td=1.0",
+                "++agent.l_en=0.01",
+                "++agent.optimizer.learning_rate=3e-4",
             ]
         }
     ]

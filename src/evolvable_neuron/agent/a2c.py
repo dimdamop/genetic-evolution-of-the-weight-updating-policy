@@ -13,9 +13,6 @@
 #
 # This source code is a copy of `jumanji.training.agents.a2c.a2c_agent` with only very minor
 # modifications. In particular:
-# - the `haiku.Params` type has been replaced by `FrozenDict[str, Any`]
-# - The loss is computed using `TrainState` directly, as opposed to passing down the encapsulated
-#   objects.
 
 import functools
 from typing import Any, Callable, Dict, Tuple
@@ -26,11 +23,16 @@ import jax.numpy as jnp
 import optax
 import rlax
 from flax import linen as nn
-from flax.core import FrozenDict
 from jumanji.env import Environment
 from jumanji.training.networks.parametric_distribution import ParametricDistribution
 
-from evolvable_neuron.agent.types import ActingState, ParamsState, TrainState, Transition
+from evolvable_neuron.agent.types import (
+    ActingState,
+    NetworkVariables,
+    ParamsState,
+    TrainState,
+    Transition,
+)
 
 
 class Agent:
@@ -63,7 +65,7 @@ class Agent:
         self.n_steps = n_steps
         self.policy = policy
         self.value = value
-        self.parametric_action_distribution = parametric_action_distribution 
+        self.parametric_action_distribution = parametric_action_distribution
         self.optimizer = optimizer
         self.normalize_advantage = normalize_advantage
         self.discount_factor = discount_factor
@@ -74,12 +76,18 @@ class Agent:
 
     def init_params(self, key: chex.PRNGKey) -> ParamsState:
         actor_key, critic_key = jax.random.split(key)
+
+        # adding the batch dimension to a single observation
         dummy_obs = jax.tree_util.tree_map(
             lambda x: x[None, ...], self.observation_spec.generate_value()
-        )  # Add batch dim
+        )
 
-        actor = self.policy.init(actor_key, dummy_obs)["params"]
-        critic = self.value.init(critic_key, dummy_obs)["params"]
+        actor_vars = self.policy.init(actor_key, dummy_obs)
+        critic_vars = self.value.init(critic_key, dummy_obs)
+
+        actor = NetworkVariables(backprop=actor_vars["params"], memory=actor_vars["memory"])
+        critic = NetworkVariables(backprop=critic_vars["params"], memory=critic_vars["memory"])
+
         return ParamsState(
             actor=actor,
             critic=critic,
@@ -87,29 +95,32 @@ class Agent:
             update_count=jnp.array(0, float),
         )
 
-    def training_iteration(self, train_state: TrainState) -> Tuple[TrainState, Dict]:
+    def training_iteration(self, s: TrainState) -> Tuple[TrainState, Dict]:
         """Performs a single step of parameters' update using the provided optimizer. It returns the
         updated training state and the computed metrics.
         """
-        grad, (acting_state, metrics) = jax.grad(self.a2c_loss, has_aux=True)(train_state)
+        grad, (acting_state, metrics) = jax.grad(self.a2c_loss, has_aux=True)(s)
         grad, metrics = jax.lax.pmean((grad, metrics), "devices")
-        updates, opt = self.optimizer.update(grad, train_state.params.opt)
-        ac, cr = optax.apply_updates((train_state.params.actor, train_state.params.critic), updates)
-        train_state = TrainState(
-            params=ParamsState(
-                actor=ac, critic=cr, opt=opt, update_count=train_state.params.update_count + 1,
-            ),
-            acting_state=acting_state,
+        updates, opt = self.optimizer.update(grad, s.params.opt)
+        actor_backprob_params, critic_backprob_params = optax.apply_updates(
+            (s.params.actor.backprop, s.params.critic.backprop), updates
         )
-        return train_state, metrics
+        actor = ActorVariables(backprop=actor_backprob_params, memory=s.params.actor.memory)
+        critic = CriticVariables(backprop=critic_backprob_params, memory=s.params.critic.memory)
+        params = ParamsState(
+            actor=actor, critic=critic, opt=opt, update_count=s.params.update_count + 1
+        )
+        s = TrainState(params=params, acting_state=acting_state)
+        return s, metrics
 
-    def a2c_loss(self, train_state: TrainState) -> Tuple[float, Tuple[ActingState, Dict]]:
+    def a2c_loss(self, s: TrainState) -> Tuple[float, Tuple[ActingState, Dict]]:
         parametric_action_distribution = self.parametric_action_distribution
-        value_apply = self.value.apply
+        value_apply = lambda obs: self.value.apply(
+            {"params": s.params.critic.backprop, "self_updated": s.params.critic.memory}, obs
+        )
 
-        acting_state, data = self.rollout(
-            policy_params=train_state.params.actor, acting_state=train_state.acting
-        )  # data.shape == (T, B, ...)
+        # data.shape == (T, B, ...)
+        acting_state, data = self.rollout(policy_params=s.params.actor, acting_state=s.acting)
         last_observation = jax.tree_util.tree_map(lambda x: x[-1], data.next_observation)
         observation = jax.tree_util.tree_map(
             lambda obs_0_tm1, obs_t: jnp.concatenate([obs_0_tm1, obs_t[None]], axis=0),
@@ -117,7 +128,7 @@ class Agent:
             last_observation,
         )
 
-        value = jax.vmap(value_apply, in_axes=(None, 0))(train_state.params.critic, observation)
+        value = jax.vmap(value_apply))(observation)
         discounts = jnp.asarray(self.discount_factor * data.discount, float)
         value_tm1 = value[:-1]
         value_t = value[1:]
@@ -161,22 +172,24 @@ class Agent:
             advantage=jnp.mean(advantage),
             value=jnp.mean(value),
         )
+
         if data.extras:
             metrics.update(data.extras)
+
         return total_loss, (acting_state, metrics)
 
     def make_policy(
         self,
-        policy_params: FrozenDict[str, Any],
+        policy_params: NetworkVariables,
         stochastic: bool = True,
     ) -> Callable[[Any, chex.PRNGKey], Tuple[chex.Array, Tuple[chex.Array, chex.Array]]]:
         policy_network = self.policy
         parametric_action_distribution = self.parametric_action_distribution
 
-        def policy(
-            observation: Any, key: chex.PRNGKey
-        ) -> Tuple[chex.Array, Tuple[chex.Array, chex.Array]]:
-            logits = policy_network.apply(policy_params, observation)
+        def policy(obs: Any, key: chex.PRNGKey) -> Tuple[chex.Array, Tuple[chex.Array, chex.Array]]:
+            logits = policy_network.apply(
+                {"params": policy_params.backprop, "self_updated": policy_params.memory}, obs
+            )
             if stochastic:
                 raw_action = parametric_action_distribution.sample_no_postprocessing(logits, key)
                 log_prob = parametric_action_distribution.log_prob(logits, raw_action)
@@ -194,7 +207,7 @@ class Agent:
 
     def rollout(
         self,
-        policy_params: FrozenDict[str, Any],
+        policy_params: NetworkVariables,
         acting_state: ActingState,
     ) -> Tuple[ActingState, Transition]:
         """Rollout for training purposes.

@@ -57,7 +57,7 @@ class Actor(nn.Module):
             face_len=self.face_len,
         )
         self.mlp = base.MLP((*self.dense_layer_dims, self.num_actions), depth=1)
-    
+
     def __call__(self, observation: Observation) -> Array:
         embedded_obs = self.obs_embedder(observation)
         latent = self.mlp(embedded_obs)

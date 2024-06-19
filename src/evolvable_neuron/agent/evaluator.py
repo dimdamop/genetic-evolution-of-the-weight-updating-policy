@@ -25,7 +25,7 @@ import jax
 from flax.core import FrozenDict
 from jax import numpy as jnp
 from jumanji.env import Environment
-from jumanji.training.types import ActingState, ParamsState
+from jumanji.training.types import ActingState, NetworkVariables, ParamsState
 
 
 class Evaluator:
@@ -53,7 +53,7 @@ class Evaluator:
         self.stochastic = stochastic
 
     def _eval_one_episode(
-        self, policy_params: Optional[FrozenDict[str, Any]], key: chex.PRNGKey
+        self, policy_params: Optional[NetworkVariables], key: chex.PRNGKey
     ) -> Dict:
         policy = self.agent.make_policy(policy_params=policy_params, stochastic=self.stochastic)
 
