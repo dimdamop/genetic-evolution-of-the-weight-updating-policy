@@ -11,8 +11,7 @@
 # or implied. See the License for the specific language governing permissions and limitations under
 # the License.
 #
-# This source code is a copy of `jumanji.training.agents.a2c.a2c_agent` with only very minor
-# modifications. In particular:
+# This source code is a copy of `jumanji.training.agents.a2c.a2c_agent`
 
 import functools
 from typing import Any, Callable, Dict, Tuple
@@ -32,6 +31,7 @@ from evolvable_neuron.agent.types import (
     ParamsState,
     TrainState,
     Transition,
+    VarCollection,
 )
 
 
@@ -54,10 +54,11 @@ class Agent:
     ) -> None:
         self.total_batch_size = total_batch_size
         num_devices = jax.local_device_count()
-        assert total_batch_size % num_devices == 0, (
-            "The total batch size must be a multiple of the number of devices, "
-            f"got total_batch_size={total_batch_size} and num_devices={num_devices}."
-        )
+        if total_batch_size % num_devices != 0:
+            raise NotImplementedError(
+                "The total batch size must be a multiple of the number of devices, got "
+                f"{total_batch_size=} and {num_devices=}."
+            )
 
         self.batch_size_per_device = total_batch_size // num_devices
         self.env = env
@@ -116,11 +117,13 @@ class Agent:
     def a2c_loss(self, s: TrainState) -> Tuple[float, Tuple[ActingState, Dict]]:
         parametric_action_distribution = self.parametric_action_distribution
         value_apply = lambda obs: self.value.apply(
-            {"params": s.params.critic.backprop, "self_updated": s.params.critic.memory}, obs
+            {"params": s.params.critic.backprop, "self_updated": s.params.critic.memory},
+            obs,
+            mutable=["self_updated"],
         )
 
         # data.shape == (T, B, ...)
-        acting_state, data = self.rollout(policy_params=s.params.actor, acting_state=s.acting)
+        (acting_state, _), data = self.rollout(policy_params=s.params.actor, acting_state=s.acting)
         last_observation = jax.tree_util.tree_map(lambda x: x[-1], data.next_observation)
         observation = jax.tree_util.tree_map(
             lambda obs_0_tm1, obs_t: jnp.concatenate([obs_0_tm1, obs_t[None]], axis=0),
@@ -180,15 +183,22 @@ class Agent:
 
     def make_policy(
         self,
-        policy_params: NetworkVariables,
+        backprop_params: VarCollection,
         stochastic: bool = True,
-    ) -> Callable[[Any, chex.PRNGKey], Tuple[chex.Array, Tuple[chex.Array, chex.Array]]]:
+    ) -> Callable[
+        [Any, chex.PRNGKey],
+        Tuple[chex.Array, Tuple[chex.Array, chex.Array], VarCollection]
+    ]:
         policy_network = self.policy
         parametric_action_distribution = self.parametric_action_distribution
 
-        def policy(obs: Any, key: chex.PRNGKey) -> Tuple[chex.Array, Tuple[chex.Array, chex.Array]]:
-            logits = policy_network.apply(
-                {"params": policy_params.backprop, "self_updated": policy_params.memory}, obs
+        def policy(
+            obs: Any, key: chex.PRNGKey, memory_params: VarCollection,
+        ) -> Tuple[chex.Array, Tuple[chex.Array, chex.Array], VarCollection]:
+            logits, memory = policy_network.apply(
+                {"params": backprop_params, "self_updated": memory_params},
+                obs,
+                mutable=["self_updated"],
             )
             if stochastic:
                 raw_action = parametric_action_distribution.sample_no_postprocessing(logits, key)
@@ -201,26 +211,31 @@ class Agent:
                     parametric_action_distribution.log_prob(logits, raw_action)
                 )
             action = parametric_action_distribution.postprocess(raw_action)
-            return action, (log_prob, logits)
+            return action, (log_prob, logits), memory
 
         return policy
 
     def rollout(
         self,
-        policy_params: NetworkVariables,
+        policy_backprop_params: VarCollection,
+        policy_memory_params: VarCollection,
         acting_state: ActingState,
     ) -> Tuple[ActingState, Transition]:
         """Rollout for training purposes.
         Returns:
             shape (n_steps, batch_size_per_device, *)
         """
-        policy = self.make_policy(policy_params=policy_params)
+        policy = self.make_policy(backprop_params=policy_backprop_params)
 
         def run_one_step(
-            acting_state: ActingState, key: chex.PRNGKey
-        ) -> Tuple[ActingState, Transition]:
+            state: Tuple[ActingState, VarCollection], key: chex.PRNGKey
+        ) -> Tuple[Tuple[ActingState, VarCollection], Transition]:
+            acting_state, memory = state
             timestep = acting_state.timestep
-            action, (log_prob, logits) = policy(timestep.observation, key)
+            action, (log_prob, logits), memory = policy(
+                obs=timestep.observation, key=key, memory_params=memory,
+            )
+
             next_env_state, next_timestep = self.env.step(acting_state.state, action)
 
             acting_state = ActingState(
@@ -244,8 +259,7 @@ class Agent:
                 extras=next_timestep.extras,
             )
 
-            return acting_state, transition
+            return (acting_state, memory), transition
 
         acting_keys = jax.random.split(acting_state.key, self.n_steps).reshape((self.n_steps, -1))
-        acting_state, data = jax.lax.scan(run_one_step, acting_state, acting_keys)
-        return acting_state, data
+        return jax.lax.scan(run_one_step, (acting_state, policy_memory_params), acting_keys)

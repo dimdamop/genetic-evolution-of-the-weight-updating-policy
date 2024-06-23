@@ -25,10 +25,17 @@ from jax import lax
 from jax import numpy as jnp
 
 
-def linear_relu(w, b, aux_params, inp, depth, memory):
+def linear_relu_with_memory(w, b, aux_params, inp, depth, memory):
     s0, s1 = aux_params
     linear_combination = jnp.dot(w, inp) + b
-    return jnp.where(linear_combination > 0, linear_combination, 0), memory
+    melancholic_archer = jnp.where(memory > linear_combination, depth, memory + 1)
+    return jnp.where(linear_combination > 0, linear_combination, 0), melancholic_archer
+
+
+def linear_relu(w, b, aux_params, inp, depth):
+    s0, s1 = aux_params
+    linear_combination = jnp.dot(w, inp) + b
+    return jnp.where(linear_combination > 0, linear_combination, 0)
 
 
 try:
@@ -37,8 +44,10 @@ except ModuleNotFoundError:
     dense = linear_relu
 
 
-class Dense(nn.Module):
-    """A transformation applied over the last dimension of the input."""
+class DenseWithMemory(nn.Module):
+    """A transformation applied over the last dimension of the input. Memory is
+    supported via the `"self_updated"` variable collection.
+    """
 
     out_feats: int
     kernel_init: Initializer = initializers.lecun_normal()
@@ -84,18 +93,29 @@ class MLP(nn.Module):
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
     depth: int = 0
+    with_memory: bool = False
 
     def setup(self):
-        self.layers = [
-            Dense(
-                out_feats=out_feats,
-                kernel_init=self.kernel_init,
-                bias_init=self.bias_init,
-                depth=self.depth + index,
-                name="dense_%d" % index,
-            )
-            for index, out_feats in enumerate(self.layer_feats)
-        ]
+
+        if self.with_memory:
+            self.layers = [
+                DenseWithMemory(
+                    out_feats=out_feats,
+                    kernel_init=self.kernel_init,
+                    bias_init=self.bias_init,
+                    depth=self.depth + index,
+                )
+                for index, out_feats in enumerate(self.layer_feats)
+            ]
+        else:
+            self.layers = [
+                nn.Dense(
+                    features=out_feats,
+                    kernel_init=self.kernel_init,
+                    bias_init=self.bias_init,
+                )
+                for out_feats in self.layer_feats
+            ]
 
     def __call__(self, x: Array) -> Array:
         for layer in self.layers:

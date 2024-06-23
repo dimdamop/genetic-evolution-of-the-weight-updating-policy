@@ -415,10 +415,10 @@ class Cloner(Transformer):
         return Tree(data=Token("RULE", "b_var_expr"), children=[varname])
 
     def new_b_const_expr(self) -> Tree:
-        # bconst : IS_STATE_POSITIVE
+        # bconst : IS_S0_POSITIVE
         # bconst -> b_const_expr
 
-        const_tree = Tree(Token("IS_STATE_POSITIVE", "state > 0"), [])
+        const_tree = Tree(Token("IS_S0_POSITIVE", "S0 > 0"), [])
         return Tree(data="b_const_expr", children=[Tree(Token("RULE", "bconst"), [const_tree])])
 
     def new_s2s_expr(self) -> Tree:
@@ -556,7 +556,8 @@ class Cloner(Transformer):
         )
 
     def new_s_const_expr(self) -> Tree:
-        # sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1 | STATE
+        # sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1 
+        # sconst (with memory) : ZERO | ONE | TWO | B | DEPTH | S0 | S1 | MEMORY
         # sconst -> s_const_expr
 
         const = _choice(self.rng, self.rules["sconst"].children)

@@ -7,10 +7,10 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    ("resize_to", "layer_feats", "lr"),
-    (((18, 28), [128, 32, 1], 1e-3), ((64, 96), [128, 128, 64, 64, 32, 1], 1e-4)),
+    ("resize_to", "layer_feats", "lr", "with_memory"),
+    (((18, 28), [128, 32, 1], 1e-3, True), ((64, 96), [128, 128, 64, 64, 32, 1], 1e-4), True),
 )
-def test_supervised_regression_with_mlp(ds, mlp_module, tx) -> None:
+def test_supervised_regression_with_mlp_with_memory(ds, mlp, tx) -> None:
 
     def update_step(apply_fn, x, y_true, opt_state, params, state):
         def loss(params):
@@ -42,7 +42,7 @@ def test_supervised_regression_with_mlp(ds, mlp_module, tx) -> None:
             params=params,
             state=state,
         )
-        print(f"{batch_idx=}, {loss=}")
+        print(f"{batch_idx=}, {loss=}, {state=}")
 
         if batch_idx == 99:
             break

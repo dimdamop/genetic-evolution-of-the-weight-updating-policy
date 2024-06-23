@@ -39,9 +39,7 @@ class Transition(NamedTuple):
     extras: Optional[Dict]
 
 
-class NetworkVariables(NamedTuple):
-    backprop: FrozenDict[str, Any]
-    memory: FrozenDict[str, Any]
+VarCollection = FrozenDict[str, Any]
 
 
 class ParamsState(NamedTuple):
