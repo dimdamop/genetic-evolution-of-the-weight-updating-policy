@@ -33,7 +33,7 @@ class Torso(nn.Module):
             vocab_size=self.face_len,
             embed_dim=self.cube_embed_dim,
         )
-        self.step_embedder = base.Dense(self.step_count_embed_dim)
+        self.step_embedder = nn.Dense(self.step_count_embed_dim)
 
     def __call__(self, observation: Observation) -> Array:
         embedded_obs = self.obs_embedder(observation.cube).reshape(*observation.cube.shape[:-3], -1)

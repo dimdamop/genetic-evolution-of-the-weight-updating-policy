@@ -182,8 +182,8 @@ def _train_state(env: jum.Environment, agent, key: PRNGKey, params_path: str | N
     )
 
     return TrainState(
-        params=jax.device_put_replicated(params_state, jax.local_devices()),
-        acting=acting_state,
+        params_state=jax.device_put_replicated(params_state, jax.local_devices()),
+        acting_state=acting_state,
     )
 
 
@@ -239,7 +239,7 @@ def evaluate(train_state, evaluators: Dict[str, Evaluator], key, timer: Timer):
     for eval_id, evaluator in evaluators.items():
         eval_key, key = split_key(key)
         with timer:
-            metrics = evaluator.run_evaluation(train_state.params, eval_key)
+            metrics = evaluator.run_evaluation(train_state.params_state, eval_key)
             jax.block_until_ready(metrics)
         all_metrics[eval_id] = metrics
 

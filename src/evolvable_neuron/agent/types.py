@@ -14,16 +14,16 @@
 # This source code is a copy of `jumanji.training.types` with only very minor modifications. In
 # particular:
 # - the `haiku.Params` type has been replaced by `FrozenDict[str, Any`]
-# - `ActorCriticParams` has been merged to `ParamsState`
-# - Various variables have been renamed, such as `TrainingState` getting renamed to `TrainState`
-# - More docstrings
 
 from typing import Any, Dict, NamedTuple, Optional
 
 import chex
 import optax
-from flax.core import FrozenDict
+
+from jumanji.training.networks.parametric_distribution import ParametricDistribution
 from jumanji.types import TimeStep
+from flax.core import FrozenDict
+from flax import linen as nn
 
 
 class Transition(NamedTuple):
@@ -42,16 +42,18 @@ class Transition(NamedTuple):
 VarCollection = FrozenDict[str, Any]
 
 
+class ActorCriticParams(NamedTuple):
+    actor: VarCollection
+    critic: VarCollection
+
+
 class ParamsState(NamedTuple):
     """Container for the variables used during the training of an agent."""
 
-    actor: NetworkVariables
-    critic: NetworkVariables
-    opt: optax.OptState
-
-    # Not used anywhere, but the original `jumanji` implementation has it and
-    # `flax.training.train_state.TrainState` has it too. I trust that all of these guys have good
-    # reason for carrying this around, so -whatever- let' s keep it.
+    params: ActorCriticParams
+    opt_state: optax.OptState
+    # Not used anywhere, but both `jumanji` and `flax.training.train_state.TrainState` have it.
+    # I trust that they know better than me so -whatever- let' s keep it.
     update_count: float
 
 
@@ -68,5 +70,15 @@ class ActingState(NamedTuple):
 class TrainState(NamedTuple):
     """Container for data used during the training of an agent acting in an environment."""
 
-    params: Optional[ParamsState]
-    acting: ActingState
+    params_state: Optional[ParamsState]
+    acting_state: ActingState
+
+
+class ActorCriticModels(NamedTuple):
+    """Defines the actor-critic models, which outputs the logits of a policy, and a value given an
+    observation. The assumption is that the models are given a batch of observations.
+    """
+
+    policy: nn.Module
+    value: nn.Module
+    parametric_action_distribution: ParametricDistribution
