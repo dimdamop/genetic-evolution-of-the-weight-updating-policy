@@ -105,7 +105,7 @@ class Evaluator:
         key: chex.PRNGKey,
         eval_batch_size: int,
     ) -> Dict:
-        policy_params = getattr(params_state, "actor", None)
+        policy_params = params_state.params.actor
         keys = jax.random.split(key, eval_batch_size)
         eval_metrics = jax.vmap(self._eval_one_episode, in_axes=(None, 0))(
             policy_params,
