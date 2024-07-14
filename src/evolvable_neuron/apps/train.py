@@ -1,6 +1,7 @@
 # Adapted :mod:`jumanji.training.train`
 import inspect
 import logging
+import os
 import pickle
 from contextlib import AbstractContextManager
 from functools import partial
@@ -39,9 +40,10 @@ def read_params_state(path: str) -> ParamsState:
 @hydra.main(config_path="cfg", config_name="rubiks_cube")
 def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
 
-    logging.info(omegaconf.OmegaConf.to_yaml(cfg))
     logging.getLogger().setLevel(logging.INFO)
+    logging.info(omegaconf.OmegaConf.to_yaml(cfg))
     logging.info({"devices": jax.local_devices()})
+    logging.info("working directory: %s", os.getcwd())
 
     train_key = jax.random.PRNGKey(cfg.seed.train)
     train_eval_key, final_eval_key = split_key(jax.random.PRNGKey(cfg.seed.evaluation))
