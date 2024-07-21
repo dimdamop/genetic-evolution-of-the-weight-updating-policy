@@ -20,8 +20,8 @@ import jax
 import jax.numpy as jnp
 import optax
 import rlax
-
 from jumanji.env import Environment
+
 from evolvable_neuron.agent.types import (
     ActingState,
     ActorCriticModels,

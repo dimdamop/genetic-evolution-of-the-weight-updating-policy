@@ -19,11 +19,10 @@ from typing import Any, Dict, NamedTuple, Optional
 
 import chex
 import optax
-
+from flax import linen as nn
+from flax.core import FrozenDict
 from jumanji.training.networks.parametric_distribution import ParametricDistribution
 from jumanji.types import TimeStep
-from flax.core import FrozenDict
-from flax import linen as nn
 
 
 class Transition(NamedTuple):

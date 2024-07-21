@@ -25,7 +25,8 @@ import jax
 from flax.core import FrozenDict
 from jax import numpy as jnp
 from jumanji.env import Environment
-from evolvable_neuron.agent.types import ActingState, VarCollection, ParamsState
+
+from evolvable_neuron.agent.types import ActingState, ParamsState, VarCollection
 
 
 class Evaluator:
