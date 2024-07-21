@@ -6,5 +6,5 @@ channels:
 
 dependencies:
     - tk
-    - python=3.11
+    - python=3.11.8
     - pip
