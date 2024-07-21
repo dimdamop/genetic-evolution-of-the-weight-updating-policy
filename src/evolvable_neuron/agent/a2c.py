@@ -235,17 +235,19 @@ class Agent:
             timestep = acting_state.timestep
             action, (log_prob, logits) = policy(timestep.observation, key)
             next_env_state, next_timestep = self.env.step(acting_state.state, action)
-
+            episode_count = (
+                acting_state.episode_count + jax.lax.psum(next_timestep.last().sum(), "devices")
+            )
+            env_step_count = (
+                acting_state.env_step_count + jax.lax.psum(self.batch_size_per_device, "devices")
+            )
             acting_state = ActingState(
                 state=next_env_state,
                 timestep=next_timestep,
                 key=key,
-                episode_count=acting_state.episode_count
-                + jax.lax.psum(next_timestep.last().sum(), "devices"),
-                env_step_count=acting_state.env_step_count
-                + jax.lax.psum(self.batch_size_per_device, "devices"),
+                episode_count=episode_count,
+                env_step_count=env_step_count,
             )
-
             transition = Transition(
                 observation=timestep.observation,
                 action=action,
