@@ -11,18 +11,13 @@
 # or implied. See the License for the specific language governing permissions and limitations under
 # the License.
 #
-# This source code is a copy of `jumanji.training.evaluator` with only very minor modifications. In
-# particular:
-# - the `haiku.Params` type has been replaced by `FrozenDict[str, Any]`
-# - No type checking of the agent being evaluated
+# This source code is a copy of `jumanji.training.evaluator` with only very minor modifications.
 
 import functools
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import chex
-import haiku as hk
 import jax
-from flax.core import FrozenDict
 from jax import numpy as jnp
 from jumanji.env import Environment
 

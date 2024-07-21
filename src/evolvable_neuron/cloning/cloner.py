@@ -1,6 +1,6 @@
 from collections import deque
 from logging import debug
-from typing import Deque, List, Literal, Tuple
+from typing import Deque, List, Literal
 
 import numpy as np
 from lark import Token, Transformer, Tree, Visitor

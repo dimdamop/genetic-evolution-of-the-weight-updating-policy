@@ -14,14 +14,11 @@
 """
 
 from collections.abc import Iterable
-from typing import Callable, Tuple
 
 import flax.linen as nn
 import jax
-import numpy as np
 from flax.linen import initializers
 from flax.typing import Array, Initializer
-from jax import lax
 from jax import numpy as jnp
 
 
