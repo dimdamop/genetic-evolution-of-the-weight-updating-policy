@@ -52,9 +52,7 @@ class Evaluator:
         )
         self.stochastic = stochastic
 
-    def _eval_one_episode(
-        self, policy_params: Optional[VarCollection], key: chex.PRNGKey
-    ) -> Dict:
+    def _eval_one_episode(self, policy_params: Optional[VarCollection], key: chex.PRNGKey) -> Dict:
         policy = self.agent.make_policy(policy_params=policy_params, stochastic=self.stochastic)
 
         def cond_fun(carry: Tuple[ActingState, float]) -> jnp.bool_:

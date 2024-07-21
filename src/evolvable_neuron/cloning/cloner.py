@@ -556,7 +556,7 @@ class Cloner(Transformer):
         )
 
     def new_s_const_expr(self) -> Tree:
-        # sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1 
+        # sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1
         # sconst (with memory) : ZERO | ONE | TWO | B | DEPTH | S0 | S1 | MEMORY
         # sconst -> s_const_expr
 
