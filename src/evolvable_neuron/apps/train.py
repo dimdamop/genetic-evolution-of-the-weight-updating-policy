@@ -119,10 +119,11 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
             total_steps += epoch_steps
             epi += 1
 
+            epi_dgt = epi % 10
             logging.info(
                 "The %d%s epoch finished in %.1f sec. Remaining time credit: %.1f sec",
                 epi,
-                "st" if epi == 1 else "nd" if epi == 2 else "rd" if epi == 3 else "th",
+                "st" if epi_dgt == 1 else "nd" if epi_dgt == 2 else "rd" if epi_dgt == 3 else "th",
                 last_epoch_t,
                 remaining_t,
             )
@@ -168,6 +169,7 @@ def _train_state(env: jum.Environment, agent, key: PRNGKey, params_path: str | N
     reset_keys = split_key(reset_key, agent.total_batch_size).reshape(
         (num_workers, num_local_devices, local_batch_size, -1)
     )
+    # The environment initialization is unique per process
     env_state, timestep = jax.pmap(env.reset, axis_name="devices")(reset_keys[jax.process_index()])
 
     # Initialize acting states
