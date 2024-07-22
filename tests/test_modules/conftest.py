@@ -11,8 +11,13 @@ BATCH_SIZE = 16
 
 
 @pytest.fixture
-def ds(resize_to: Tuple[int, int]):
-    return batch_iterator(batch_size=BATCH_SIZE, resize_to=resize_to)
+def ds(resize_to: Tuple[int, int], take: int | None):
+    ds = batch_iterator(batch_size=BATCH_SIZE, resize_to=resize_to)
+
+    if take is not None:
+        ds = ds.take(take)
+
+    return ds
 
 
 @pytest.fixture
@@ -21,5 +26,5 @@ def tx(lr: float):
 
 
 @pytest.fixture
-def mlp_module(layer_feats: Tuple[int], with_memory: bool):
+def mlp(layer_feats: Tuple[int], with_memory: bool):
     return MLP(layer_feats=layer_feats, with_memory=with_memory)

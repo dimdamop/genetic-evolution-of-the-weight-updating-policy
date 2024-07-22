@@ -8,7 +8,6 @@ from .samples import sample_element
 
 
 NUM_PARALLEL_CALLS = AUTOTUNE
-# NUM_SAMPLES: int | None = 70000
 NUM_SAMPLES: int | None = None
 
 
