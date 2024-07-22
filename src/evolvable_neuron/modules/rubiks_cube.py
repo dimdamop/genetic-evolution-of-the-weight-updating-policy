@@ -29,10 +29,7 @@ class Torso(nn.Module):
     face_len: int
 
     def setup(self):
-        self.obs_embedder = base.Embed(
-            vocab_size=self.face_len,
-            embed_dim=self.cube_embed_dim,
-        )
+        self.obs_embedder = base.Embed(vocab_size=self.face_len, embed_dim=self.cube_embed_dim)
         self.step_embedder = nn.Dense(self.step_count_embed_dim)
 
     def __call__(self, observation: Observation) -> Array:

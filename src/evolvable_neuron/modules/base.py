@@ -23,6 +23,9 @@ from jax import numpy as jnp
 
 
 def linear_relu_with_memory(w, b, aux_params, inp, depth, memory):
+    """The first item of the returned tuple is the same as the output of `linear_relu`, the second
+    one is some random crap I made up to showcase what I mean by "memory".
+    """
     s0, s1 = aux_params
     linear_combination = jnp.dot(w, inp) + b
     melancholic_archer = jnp.where(memory > linear_combination, depth, memory + 1)
@@ -30,11 +33,16 @@ def linear_relu_with_memory(w, b, aux_params, inp, depth, memory):
 
 
 def linear_relu(w, b, aux_params, inp, depth):
+    """The transformation `ReLU(w * inp + b)`. The `aux_params and `depth` parameters are not used.
+    """
     s0, s1 = aux_params
     linear_combination = jnp.dot(w, inp) + b
     return jnp.where(linear_combination > 0, linear_combination, 0)
 
 
+"""Attempt to load an "externally" defined `dense` function. If unsuccessful, fall back to boring
+`linear_relu`.
+"""
 try:
     from evolvable_neuron_plugin import dense
 except ModuleNotFoundError:
@@ -42,8 +50,8 @@ except ModuleNotFoundError:
 
 
 class DenseWithMemory(nn.Module):
-    """A transformation applied over the last dimension of the input. Memory is
-    supported via the `"self_updated"` variable collection.
+    """A transformation applied over the last dimension of the input. Memory is supported via the
+    `"self_updated"` variable collection.
     """
 
     out_feats: int
@@ -106,6 +114,7 @@ class MLP(nn.Module):
             ]
         else:
             self.layers = [
+                # FIXME temporary till I have it working (it should be our own `Dense`)
                 nn.Dense(
                     features=out_feats,
                     kernel_init=self.kernel_init,
