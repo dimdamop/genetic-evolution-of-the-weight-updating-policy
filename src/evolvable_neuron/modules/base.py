@@ -33,8 +33,7 @@ def linear_relu_with_memory(w, b, aux_params, inp, depth, memory):
 
 
 def linear_relu(w, b, aux_params, inp, depth):
-    """The transformation `ReLU(w * inp + b)`. The `aux_params and `depth` parameters are not used.
-    """
+    """The transformation `ReLU(w * inp + b)`. The `aux_params and `depth` parameters are not used."""
     s0, s1 = aux_params
     linear_combination = jnp.dot(w, inp) + b
     return jnp.where(linear_combination > 0, linear_combination, 0)
@@ -91,6 +90,31 @@ class DenseWithMemory(nn.Module):
         return outT.T
 
 
+class MLPWithMemory(nn.Module):
+    """A multi-layer perceptron module."""
+
+    layer_feats: Iterable[int]
+    kernel_init: Initializer = initializers.lecun_normal()
+    bias_init: Initializer = initializers.zeros_init()
+    depth: int = 0
+
+    def setup(self):
+        self.layers = [
+            DenseWithMemory(
+                out_feats=out_feats,
+                kernel_init=self.kernel_init,
+                bias_init=self.bias_init,
+                depth=self.depth + index,
+            )
+            for index, out_feats in enumerate(self.layer_feats)
+        ]
+
+    def __call__(self, x: Array) -> Array:
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+
 class MLP(nn.Module):
     """A multi-layer perceptron module."""
 
@@ -98,30 +122,17 @@ class MLP(nn.Module):
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
     depth: int = 0
-    with_memory: bool = False
 
     def setup(self):
-
-        if self.with_memory:
-            self.layers = [
-                DenseWithMemory(
-                    out_feats=out_feats,
-                    kernel_init=self.kernel_init,
-                    bias_init=self.bias_init,
-                    depth=self.depth + index,
-                )
-                for index, out_feats in enumerate(self.layer_feats)
-            ]
-        else:
-            self.layers = [
-                # FIXME temporary till I have it working (it should be our own `Dense`)
-                nn.Dense(
-                    features=out_feats,
-                    kernel_init=self.kernel_init,
-                    bias_init=self.bias_init,
-                )
-                for out_feats in self.layer_feats
-            ]
+        self.layers = [
+            # FIXME temporary till I have it working (it should be our own `Dense`)
+            nn.Dense(
+                features=out_feats,
+                kernel_init=self.kernel_init,
+                bias_init=self.bias_init,
+            )
+            for out_feats in self.layer_feats
+        ]
 
     def __call__(self, x: Array) -> Array:
         for layer in self.layers:

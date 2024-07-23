@@ -26,5 +26,10 @@ def tx(lr: float):
 
 
 @pytest.fixture
-def mlp(layer_feats: Tuple[int], with_memory: bool):
-    return MLP(layer_feats=layer_feats, with_memory=with_memory)
+def mlp(layer_feats: Tuple[int]):
+    return MLP(layer_feats=layer_feats)
+
+
+@pytest.fixture
+def mlp_with_memory(layer_feats: Tuple[int]):
+    return MLP(layer_feats=layer_feats)
