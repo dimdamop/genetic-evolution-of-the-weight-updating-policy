@@ -137,6 +137,7 @@ class MLP(nn.Module):
     def __call__(self, x: Array) -> Array:
         for layer in self.layers:
             x = layer(x)
+            x = nn.relu(x)
         return x
 
 
