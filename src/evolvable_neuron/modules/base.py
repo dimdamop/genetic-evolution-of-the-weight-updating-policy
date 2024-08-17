@@ -47,6 +47,11 @@ try:
 except ModuleNotFoundError:
     dense = linear_relu
 
+try:
+    from evolvable_neuron_plugin import dense_with_memory
+except ModuleNotFoundError:
+    dense_with_memory = linear_relu_with_memory
+
 
 class DenseWithMemory(nn.Module):
     """A transformation applied over the last dimension of the input. Memory is supported via the
@@ -81,7 +86,7 @@ class DenseWithMemory(nn.Module):
         )
 
         # (w, b, aux_params, inp, depth, memory)
-        multi_output_dense = jax.vmap(dense, in_axes=(0, 0, 0, None, None, 0))
+        multi_output_dense = jax.vmap(dense_with_memory, in_axes=(0, 0, 0, None, None, 0))
         outT, new_mem = multi_output_dense(W, b_vec, Aux, inputs.T, depth, mem_vec.value)
 
         if update_memory:
