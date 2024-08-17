@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 
 @pytest.mark.parametrize(
-    ("resize_to", "layer_feats", "lr"),
-    (((18, 28), [128, 32, 1], 1e-3), ((64, 96), [128, 128, 64, 64, 32, 1], 1e-4)),
+    ("ds_conf", "layer_feats", "lr"),
+    ((((2, 4), 16), [128, 32, 1], 1e-3), (((8, 16), 128), [128, 128, 64, 64, 32, 1], 1e-4)),
 )
 def test_supervised_regression_with_mlp_with_memory(ds, mlp_with_memory, tx) -> None:
 
@@ -47,20 +47,17 @@ def test_supervised_regression_with_mlp_with_memory(ds, mlp_with_memory, tx) -> 
         )
         print(f"{batch_idx=}, {loss=}, {state=}")
 
-        if batch_idx == 99:
-            break
-
 
 @pytest.mark.parametrize(
-    ("resize_to", "take", "layer_feats", "lr"),
-    (((8, 12), 200, [128, 32, 1], 1e-3), ((16, 32), 200, [128, 128, 64, 64, 32, 1], 1e-4)),
+    ("ds_conf", "layer_feats", "lr"),
+    ((((12, 8), 100), [128, 32, 4, 1], 1e-4), (((16, 32), 10000), [128, 128, 64, 64, 32, 1], 1e-4)),
 )
 def test_supervised_regression_with_mlp(ds, mlp, tx) -> None:
 
     @jax.jit
     def mse(params, x, y_true):
         def se(x, y_true):
-            return (mlp.apply(params, x) - y_true) ** 2
+            return (mlp.apply(params, x) - y_true) ** 2 / len(x)
 
         return jnp.squeeze(jnp.mean(jax.vmap(se)(x, y_true), axis=0))
 
@@ -69,12 +66,20 @@ def test_supervised_regression_with_mlp(ds, mlp, tx) -> None:
     params = None
     num_epochs = 50
 
+    first_sample_sum = None
+
     for epoch in range(1, num_epochs + 1):
         pbar = tqdm(ds)
         for batch_idx, batch in enumerate(pbar):
 
             imgs, y_true = batch["img"].numpy(), batch["regression"].numpy()
             x = imgs.reshape([imgs.shape[0], imgs.size // imgs.shape[0]])
+
+            if batch_idx == 0:
+                if first_sample_sum is None:
+                    first_sample_sum = x.sum()
+                else:
+                    assert first_sample_sum == x.sum()
 
             if not params:
                 params = mlp.init(jax.random.key(0), x[0])
@@ -84,3 +89,55 @@ def test_supervised_regression_with_mlp(ds, mlp, tx) -> None:
             updates, opt_state = tx.update(grads, opt_state)
             params = optax.apply_updates(params, updates)
             pbar.set_description(f"loss={float(loss):.2f} {epoch}/{num_epochs}")
+
+        y = mlp.apply(params, x[0])
+        print(f"{y_true[0]=}, {y=}")
+
+
+@pytest.mark.parametrize(
+    ("mog_conf", "layer_feats", "lr"),
+    (
+        (
+            {"samples": 160, "locs": [[0, 0], [100, 100], [50, 50]], "stddevs": [10, 10, 10]},
+            [128, 32, 4, 3],
+            1e-4,
+        ),
+        (
+            {"samples": 16000, "locs": [[0, 0], [100, 100], [50, 50]], "stddevs": [25, 10, 25]},
+            [128, 128, 64, 64, 32, 3],
+            1e-4,
+        ),
+    ),
+)
+def test_supervised_mog_classification_mlp(mog_ds, mlp, tx) -> None:
+
+    @jax.jit
+    def mce(params, x, y_true):
+        def ce(x, y_true):
+            logits = mlp.apply(params, x)
+            probs = jax.nn.log_softmax(logits)
+            one_hot_labels = jax.nn.one_hot(y_true, logits.shape[-1])
+            return -jnp.sum(one_hot_labels * probs, axis=-1)
+
+        return jnp.squeeze(jnp.mean(jax.vmap(ce)(x, y_true), axis=0))
+
+    grad_mce = jax.value_and_grad(mce)
+
+    params = None
+    num_epochs = 50
+
+    for epoch in range(1, num_epochs + 1):
+        pbar = tqdm(zip(*mog_ds))
+        for feats, targets in pbar:
+
+            if not params:
+                params = mlp.init(jax.random.key(0), feats[0])
+                opt_state = tx.init(params)
+
+            loss, grads = grad_mce(params, feats, targets)
+            updates, opt_state = tx.update(grads, opt_state)
+            params = optax.apply_updates(params, updates)
+            pbar.set_description(f"loss={float(loss):.2f} {epoch}/{num_epochs}")
+
+        y = mlp.apply(params, feats[0])
+        print(f"{targets[0]=}, {y=}")
