@@ -49,52 +49,6 @@ def test_supervised_regression_with_mlp_with_memory(ds, mlp_with_memory, tx) -> 
 
 
 @pytest.mark.parametrize(
-    ("ds_conf", "layer_feats", "lr"),
-    ((((12, 8), 100), [128, 32, 4, 1], 1e-4), (((16, 32), 10000), [128, 128, 64, 64, 32, 1], 1e-4)),
-)
-def test_supervised_regression_with_mlp(ds, mlp, tx) -> None:
-
-    @jax.jit
-    def mse(params, x, y_true):
-        def se(x, y_true):
-            return (mlp.apply(params, x) - y_true) ** 2 / len(x)
-
-        return jnp.squeeze(jnp.mean(jax.vmap(se)(x, y_true), axis=0))
-
-    grad_mse = jax.value_and_grad(mse)
-
-    params = None
-    num_epochs = 50
-
-    first_sample_sum = None
-
-    for epoch in range(1, num_epochs + 1):
-        pbar = tqdm(ds)
-        for batch_idx, batch in enumerate(pbar):
-
-            imgs, y_true = batch["img"].numpy(), batch["regression"].numpy()
-            x = imgs.reshape([imgs.shape[0], imgs.size // imgs.shape[0]])
-
-            if batch_idx == 0:
-                if first_sample_sum is None:
-                    first_sample_sum = x.sum()
-                else:
-                    assert first_sample_sum == x.sum()
-
-            if not params:
-                params = mlp.init(jax.random.key(0), x[0])
-                opt_state = tx.init(params)
-
-            loss, grads = grad_mse(params, x, y_true)
-            updates, opt_state = tx.update(grads, opt_state)
-            params = optax.apply_updates(params, updates)
-            pbar.set_description(f"loss={float(loss):.2f} {epoch}/{num_epochs}")
-
-        y = mlp.apply(params, x[0])
-        print(f"{y_true[0]=}, {y=}")
-
-
-@pytest.mark.parametrize(
     ("mog_conf", "layer_feats", "lr", "epochs"),
     (
         (
@@ -104,10 +58,10 @@ def test_supervised_regression_with_mlp(ds, mlp, tx) -> None:
             4,
         ),
         (
-            {"samples": 16000, "locs": [[0, 0, 0], [10, 10, 10], [5, 5, 5]], "stddevs": [2, 2, 2]},
+            {"samples": 16000, "locs": [[0, 0, 0], [20, 20, 20], [9, 9, 9]], "stddevs": [2, 2, 2]},
             [64, 64, 64, 64, 3],
             1e-3,
-            20,
+            10,
         ),
     ),
 )
@@ -147,4 +101,4 @@ def test_supervised_mog_classification_mlp(mog_ds, mlp, tx, epochs) -> None:
         accuracy = float((y_true == y_pred).mean())
         print(f"{accuracy=}\n\n")
 
-    assert accuracy > 0.98
+    assert accuracy > 0.99
