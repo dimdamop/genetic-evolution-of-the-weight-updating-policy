@@ -38,7 +38,7 @@ def mlp_with_memory(layer_feats: Tuple[int]):
 
 
 @pytest.fixture
-def mog_ds(mog_conf: dict, batch_size: int | None = 16) -> tuple[np.ndarray]:
+def mog_ds(mog_conf: dict, batch_size: int | None = 16, norm: bool = True) -> tuple[np.ndarray]:
     """
     Generates a mixture of sphrerical Gaussians dataset.
 
@@ -68,6 +68,10 @@ def mog_ds(mog_conf: dict, batch_size: int | None = 16) -> tuple[np.ndarray]:
         indices = np.where(labels == i)[0]
         std = mog_conf["stddevs"][i]
         features[indices, :] = np.random.randn(len(indices), d) * std + locs[i].reshape(1, -1)
+
+    if norm:
+        features -= features.mean()
+        features /= features.std()
 
     def batch(x):
         if batch_size is None:

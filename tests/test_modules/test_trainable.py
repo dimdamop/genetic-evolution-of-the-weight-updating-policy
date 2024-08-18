@@ -95,21 +95,23 @@ def test_supervised_regression_with_mlp(ds, mlp, tx) -> None:
 
 
 @pytest.mark.parametrize(
-    ("mog_conf", "layer_feats", "lr"),
+    ("mog_conf", "layer_feats", "lr", "epochs"),
     (
         (
-            {"samples": 160, "locs": [[0, 0], [100, 100], [50, 50]], "stddevs": [10, 10, 10]},
-            [128, 32, 4, 3],
-            1e-4,
+            {"samples": 1600, "locs": [[0, 0, 0], [10, 10, 10], [5, 5, 5]], "stddevs": [1, 1, 1]},
+            [32, 32, 32, 3],
+            1e-3,
+            4,
         ),
         (
-            {"samples": 16000, "locs": [[0, 0], [100, 100], [50, 50]], "stddevs": [25, 10, 25]},
-            [128, 128, 64, 64, 32, 3],
-            1e-4,
+            {"samples": 16000, "locs": [[0, 0, 0], [10, 10, 10], [5, 5, 5]], "stddevs": [2, 2, 2]},
+            [64, 64, 64, 64, 3],
+            1e-3,
+            20,
         ),
     ),
 )
-def test_supervised_mog_classification_mlp(mog_ds, mlp, tx) -> None:
+def test_supervised_mog_classification_mlp(mog_ds, mlp, tx, epochs) -> None:
 
     @jax.jit
     def mce(params, x, y_true):
@@ -124,9 +126,8 @@ def test_supervised_mog_classification_mlp(mog_ds, mlp, tx) -> None:
     grad_mce = jax.value_and_grad(mce)
 
     params = None
-    num_epochs = 50
 
-    for epoch in range(1, num_epochs + 1):
+    for epoch in range(1, epochs + 1):
         pbar = tqdm(zip(*mog_ds))
         for feats, targets in pbar:
 
@@ -137,7 +138,13 @@ def test_supervised_mog_classification_mlp(mog_ds, mlp, tx) -> None:
             loss, grads = grad_mce(params, feats, targets)
             updates, opt_state = tx.update(grads, opt_state)
             params = optax.apply_updates(params, updates)
-            pbar.set_description(f"loss={float(loss):.2f} {epoch}/{num_epochs}")
+            pbar.set_description(f"loss={float(loss):.2f} {epoch}/{epochs}")
 
-        y = mlp.apply(params, feats[0])
-        print(f"{targets[0]=}, {y=}")
+        y_true = mog_ds[1].reshape(-1)
+        y_logits = mlp.apply(params, mog_ds[0].reshape((1, -1, mog_ds[0].shape[-1])))
+        y_pred = y_logits.argmax(axis=-1).reshape(-1)
+    
+        accuracy = float((y_true == y_pred).mean())
+        print(f"{accuracy=}\n\n")
+
+    assert accuracy > 0.98
