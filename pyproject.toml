@@ -24,17 +24,13 @@ dependencies = [
     "lark",
     "tensorflow",
 ]
-requires-python = "== 3.11.8"
+requires-python = ">=3.12, < 3.13"
 
 [tool.setuptools.dynamic]
 version = {attr = "evolvable_neuron.__version__"}
 
 [project.optional-dependencies]
-dev = [
-    "black",
-    "isort",
-    "flake8",
-]
+dev = ["black", "isort", "flake8"]
 
 [project.scripts]
 evln-train = "evolvable_neuron.apps.train:main"

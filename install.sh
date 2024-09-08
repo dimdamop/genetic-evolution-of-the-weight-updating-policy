@@ -7,11 +7,19 @@ pip install \
     "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html \
     numpy \
     hydra-core \
-    wandb \
     lark==1.1.9 \
     tensorflow==2.16.1 \
     jumanji \
     tensorboardX \
     neptune \
     rlax \
-    pytest
+    pytest \
+    evosax \
+    distrax \
+    optax \
+    flax \
+    brax \
+    wandb \
+    flashbax \
+    navix \
+    gymnax
