@@ -106,6 +106,38 @@ def trajectories(runner_state: RunnerState, unused, network: nn.Module, num_envs
     return runner_state, transition
 
 
+def loss(
+    params,
+    batch_info,
+    network,
+    clip_eps,
+    vf_coef,
+    ent_coef,
+):
+    traj_batch, gae, targets = batch_info
+    # RERUN NETWORK
+    pi, value = network.apply(params, traj_batch.obs)
+    log_prob = pi.log_prob(traj_batch.action)
+
+    # CALCULATE VALUE LOSS
+    value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(-clip_eps, clip_eps)
+    value_losses = jnp.square(value - targets)
+    value_losses_clipped = jnp.square(value_pred_clipped - targets)
+    value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
+
+    # CALCULATE ACTOR LOSS
+    ratio = jnp.exp(log_prob - traj_batch.log_prob)
+    gae = (gae - gae.mean()) / (gae.std() + 1e-8)
+    loss_actor1 = ratio * gae
+    loss_actor2 = jnp.clip(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * gae
+    loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
+    loss_actor = loss_actor.mean()
+    entropy = pi.entropy().mean()
+
+    total_loss = loss_actor + vf_coef * value_loss - ent_coef * entropy
+    return total_loss, (value_loss, loss_actor, entropy)
+
+
 def make_train(conf):
     num_updates = conf["TOTAL_TIMESTEPS"] // conf["NUM_STEPS"] // conf["NUM_ENVS"]
     minibatch_size = conf["NUM_ENVS"] * conf["NUM_STEPS"] // conf["NUM_MINIBATCHES"]
@@ -181,44 +213,17 @@ def make_train(conf):
             # UPDATE NETWORK
             def _update_epoch(update_state, unused):
                 def _update_minibatch(train_state, batch_info):
-                    traj_batch, advantages, targets = batch_info
-
-                    def _loss_fn(params, traj_batch, gae, targets):
-                        # RERUN NETWORK
-                        pi, value = network.apply(params, traj_batch.obs)
-                        log_prob = pi.log_prob(traj_batch.action)
-
-                        # CALCULATE VALUE LOSS
-                        value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(
-                            -conf["CLIP_EPS"], conf["CLIP_EPS"]
-                        )
-                        value_losses = jnp.square(value - targets)
-                        value_losses_clipped = jnp.square(value_pred_clipped - targets)
-                        value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
-
-                        # CALCULATE ACTOR LOSS
-                        ratio = jnp.exp(log_prob - traj_batch.log_prob)
-                        gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-                        loss_actor1 = ratio * gae
-                        loss_actor2 = (
-                            jnp.clip(
-                                ratio,
-                                1.0 - conf["CLIP_EPS"],
-                                1.0 + conf["CLIP_EPS"],
-                            )
-                            * gae
-                        )
-                        loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
-                        loss_actor = loss_actor.mean()
-                        entropy = pi.entropy().mean()
-
-                        total_loss = (
-                            loss_actor + conf["VF_COEF"] * value_loss - conf["ENT_COEF"] * entropy
-                        )
-                        return total_loss, (value_loss, loss_actor, entropy)
-
-                    grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                    total_loss, grads = grad_fn(train_state.params, traj_batch, advantages, targets)
+                    grad_fn = jax.value_and_grad(
+                        partial(
+                            loss,
+                            network=network,
+                            clip_eps=conf["CLIP_EPS"],
+                            vf_coef=conf["VF_COEF"],
+                            ent_coef=conf["ENT_COEF"],
+                        ),
+                        has_aux=True,
+                    )
+                    total_loss, grads = grad_fn(train_state.params, batch_info)
                     train_state = train_state.apply_gradients(grads=grads)
                     return train_state, total_loss
 
@@ -281,7 +286,7 @@ def make_train(conf):
 
 
 if __name__ == "__main__":
-    conf = {
+    _conf = {
         "LR": 2.5e-4,
         "NUM_ENVS": 4,
         "NUM_STEPS": 128,
@@ -300,7 +305,7 @@ if __name__ == "__main__":
         "DEBUG": 2,
     }
     rng = jax.random.PRNGKey(30)
-    trainer = make_train(conf)
-    if conf["DEBUG"] > 1:
+    trainer = make_train(_conf)
+    if _conf["DEBUG"] > 1:
         trainer = jax.jit(trainer)
     out = trainer(rng)
