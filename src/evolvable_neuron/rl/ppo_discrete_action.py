@@ -20,8 +20,8 @@ class ActorCritic(nn.Module):
     @nn.compact
     def __call__(self, x):
         """Returns two networks:
-            1. The actor: it maps the input `x` to a categorical distribution of `self.num_actions`.
-            2. The critic: it maps the input `x` to a floating point value.
+        1. The actor: it maps the input `x` to a categorical distribution of `self.num_actions`.
+        2. The critic: it maps the input `x` to a floating point value.
         """
 
         if self.activation == "relu":
@@ -33,9 +33,9 @@ class ActorCritic(nn.Module):
 
         actor_mean = nn.Dense(64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0))(x)
         actor_mean = activation(actor_mean)
-        actor_mean = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(actor_mean)
+        actor_mean = nn.Dense(64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0))(
+            actor_mean
+        )
         actor_mean = activation(actor_mean)
         actor_mean = nn.Dense(
             self.num_actions, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
@@ -189,9 +189,8 @@ def make_train(conf):
                         log_prob = pi.log_prob(traj_batch.action)
 
                         # CALCULATE VALUE LOSS
-                        value_pred_clipped = (
-                            traj_batch.value
-                            + (value - traj_batch.value).clip(-conf["CLIP_EPS"], conf["CLIP_EPS"])
+                        value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(
+                            -conf["CLIP_EPS"], conf["CLIP_EPS"]
                         )
                         value_losses = jnp.square(value - targets)
                         value_losses_clipped = jnp.square(value_pred_clipped - targets)
@@ -214,9 +213,7 @@ def make_train(conf):
                         entropy = pi.entropy().mean()
 
                         total_loss = (
-                            loss_actor
-                            + conf["VF_COEF"] * value_loss
-                            - conf["ENT_COEF"] * entropy
+                            loss_actor + conf["VF_COEF"] * value_loss - conf["ENT_COEF"] * entropy
                         )
                         return total_loss, (value_loss, loss_actor, entropy)
 
@@ -229,7 +226,7 @@ def make_train(conf):
                 rng, _rng = jax.random.split(rng)
                 # Batching and Shuffling
                 batch_size = minibatch_size * conf["NUM_MINIBATCHES"]
-                if  batch_size != conf["NUM_STEPS"] * conf["NUM_ENVS"]:
+                if batch_size != conf["NUM_STEPS"] * conf["NUM_ENVS"]:
                     raise ValueError("batch size must be equal to number of steps * number of envs")
                 permutation = jax.random.permutation(_rng, batch_size)
                 batch = (traj_batch, advantages, targets)
@@ -241,14 +238,13 @@ def make_train(conf):
                 )
                 # Mini-batch Updates
                 minibatches = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(
-                        x, [conf["NUM_MINIBATCHES"], -1] + list(x.shape[1:])
-                    ),
+                    lambda x: jnp.reshape(x, [conf["NUM_MINIBATCHES"], -1] + list(x.shape[1:])),
                     shuffled_batch,
                 )
                 train_state, total_loss = jax.lax.scan(_update_minibatch, train_state, minibatches)
                 update_state = (train_state, traj_batch, advantages, targets, rng)
                 return update_state, total_loss
+
             # Updating Training State and Metrics:
             update_state = (runner_state.train, traj_batch, advantages, targets, runner_state.rng)
             update_state, loss_info = jax.lax.scan(
@@ -258,11 +254,13 @@ def make_train(conf):
 
             # Debugging mode
             if conf["DEBUG"] > 0:
+
                 def callback(info):
                     return_values = info["returned_episode_returns"][info["returned_episode"]]
                     timesteps = info["timestep"][info["returned_episode"]] * conf["NUM_ENVS"]
                     for t in range(len(timesteps)):
                         print(f"global step={timesteps[t]}, episodic return={return_values[t]}")
+
                 jax.debug.callback(callback, metric)
 
             runner_state = RunnerState(

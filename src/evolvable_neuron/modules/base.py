@@ -33,8 +33,7 @@ def linear_relu_with_memory(w, b, aux_params, inp, depth, memory):
 
 
 def linear_relu(w, b, aux_params, inp, depth):
-    """The transformation `ReLU(w * inp + b)`. The `aux_params and `depth` parameters are not used.
-    """
+    """The transformation `ReLU(w * inp + b)`. The `aux_params and `depth` parameters are not used."""
     s0, s1 = aux_params
     linear_combination = jnp.dot(w, inp) + b
     return jnp.where(linear_combination > 0, linear_combination, 0)
