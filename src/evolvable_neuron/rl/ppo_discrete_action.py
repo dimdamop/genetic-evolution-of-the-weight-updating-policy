@@ -196,11 +196,7 @@ def make_train(conf):
 
             def _calculate_gae(traj_batch, last_val):
                 _, advantages = jax.lax.scan(
-                    partial(
-                        get_advantages,
-                        gamma=conf["GAMMA"],
-                        gae_lambda=conf["GAE_LAMBDA"],
-                    ),
+                    partial(get_advantages, gamma=conf["GAMMA"], gae_lambda=conf["GAE_LAMBDA"]),
                     init=(jnp.zeros_like(last_val), last_val),
                     xs=traj_batch,
                     reverse=True,
