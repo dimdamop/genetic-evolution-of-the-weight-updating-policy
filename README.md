@@ -25,3 +25,9 @@ ideas are the following:
  * https://arxiv.org/abs/1712.06567
  * https://arxiv.org/abs/1802.06070
  * https://www.sciencedirect.com/science/article/abs/pii/B9780323961042000026
+
+# Legal
+
+A substantial portion of the Python code included in this repository is a minorly modified copy of
+the module `jumanji.training` of InstaDeep Ltd. The modules that are such copies list the corresponding
+modifications that took place at the end of their header.

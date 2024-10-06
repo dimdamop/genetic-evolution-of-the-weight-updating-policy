@@ -11,10 +11,9 @@ class ToPython(Visitor):
         "rpar": ")",
         "dot": "jnp.dot",
         "mean": "jnp.mean",
+        "where": "jnp.where",
         "comma": ", ",
         "ret": "return ",
-        "if": " if ",
-        "else": " else ",
         "plural": "s",
         "grammar_and": "_and_",
     }

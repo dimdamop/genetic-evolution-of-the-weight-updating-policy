@@ -1,11 +1,10 @@
 from collections import deque
 from logging import debug
-from typing import Literal, Deque, List, Tuple
+from typing import Deque, List, Literal
 
 import numpy as np
-from lark import Token, Transformer, Visitor, Tree
+from lark import Token, Transformer, Tree, Visitor
 from lark.load_grammar import Grammar
-
 
 AssignTypeT = Literal["b_assign", "s_assign", "v_assign"]
 VarnamesT = dict[AssignTypeT : List[Tree]]
@@ -416,10 +415,10 @@ class Cloner(Transformer):
         return Tree(data=Token("RULE", "b_var_expr"), children=[varname])
 
     def new_b_const_expr(self) -> Tree:
-        # bconst : IS_S0_ABOVE_S1
+        # bconst : IS_S0_POSITIVE
         # bconst -> b_const_expr
 
-        const_tree = Tree(Token("IS_S0_ABOVE_S1", "s0 > s1"), [])
+        const_tree = Tree(Token("IS_S0_POSITIVE", "S0 > 0"), [])
         return Tree(data="b_const_expr", children=[Tree(Token("RULE", "bconst"), [const_tree])])
 
     def new_s2s_expr(self) -> Tree:
@@ -494,7 +493,7 @@ class Cloner(Transformer):
                 for expr in (left_expr, right_expr)
             ]
 
-            if any(is_one) and op_name in ("MUL_KW", "DIV_KW"):
+            if any(is_one) and op_name == "MUL_KW":
                 continue
 
             break
@@ -558,6 +557,7 @@ class Cloner(Transformer):
 
     def new_s_const_expr(self) -> Tree:
         # sconst : ZERO | ONE | TWO | B | DEPTH | S0 | S1
+        # sconst (with memory) : ZERO | ONE | TWO | B | DEPTH | S0 | S1 | MEMORY
         # sconst -> s_const_expr
 
         const = _choice(self.rng, self.rules["sconst"].children)
@@ -570,16 +570,19 @@ class Cloner(Transformer):
         )
 
     def new_s_ifelse_expr(self) -> Tree:
-        # s_expr if b_expr else s_expr -> s_ifelse_expr
+        # where lpar b_expr comma s_expr comma s_expr rpar -> s_ifelse_expr
 
         return Tree(
             data="s_ifelse_expr",
             children=[
-                self.new_expr("s_expr"),
-                Tree(Token("RULE", "if"), []),
+                Tree(Token("RULE", "where"), []),
+                Tree(Token("RULE", "lpar"), []),
                 self.new_expr("b_expr"),
-                Tree(Token("RULE", "else"), []),
+                Tree(Token("RULE", "comma"), []),
                 self.new_expr("s_expr"),
+                Tree(Token("RULE", "comma"), []),
+                self.new_expr("s_expr"),
+                Tree(Token("RULE", "rpar"), []),
             ],
         )
 
@@ -640,7 +643,7 @@ class Cloner(Transformer):
         )
 
     def new_v_const_expr(self) -> Tree:
-        # vconst : W_VEC | INPUTS
+        # vconst : W_VEC | INPUT_VEC
         # vconst -> v_const_expr
 
         const = _choice(self.rng, self.rules["vconst"].children)
@@ -653,16 +656,19 @@ class Cloner(Transformer):
         )
 
     def new_v_ifelse_expr(self) -> Tree:
-        # v_expr if b_expr else v_expr -> v_ifelse_expr
+        # where lpar b_expr comma v_expr comma v_expr rpar -> v_ifelse_expr
 
         return Tree(
             data="v_ifelse_expr",
             children=[
-                self.new_expr("v_expr"),
-                Tree(Token("RULE", "if"), []),
+                Tree(Token("RULE", "where"), []),
+                Tree(Token("RULE", "lpar"), []),
                 self.new_expr("b_expr"),
-                Tree(Token("RULE", "else"), []),
+                Tree(Token("RULE", "comma"), []),
                 self.new_expr("v_expr"),
+                Tree(Token("RULE", "comma"), []),
+                self.new_expr("v_expr"),
+                Tree(Token("RULE", "rpar"), []),
             ],
         )
 

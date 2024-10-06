@@ -1,30 +1,31 @@
 # Adapted :mod:`jumanji.training.train`
 import inspect
 import logging
+import os
 import pickle
-
 from contextlib import AbstractContextManager
 from functools import partial
 from time import perf_counter
-from typing import Any, Dict, Tuple, Literal
+from typing import Any, Dict, Literal, Tuple
 
 import hydra
 import jax
 import jax.numpy as jnp
 import jumanji as jum
 import omegaconf
-
 from chex import PRNGKey
 from hydra.utils import instantiate
 from jax.random import split as split_key
 from jumanji.wrappers import VmapAutoResetWrapper
-from jumanji.training.agents.base import Agent
-from jumanji.training.types import ActingState, ActorCriticParams, ParamsState, TrainingState
-from jumanji.training.evaluator import Evaluator
+
+from evolvable_neuron.agent import Evaluator
+from evolvable_neuron.agent.types import ActingState, ParamsState, TrainState
 
 
 def first_from_device(tree):
-    squeeze_fn = lambda x: x[0] if isinstance(x, jnp.ndarray) else x
+    def squeeze_fn(x):
+        return x[0] if isinstance(x, jnp.ndarray) else x
+
     return jax.tree_util.tree_map(squeeze_fn, tree)
 
 
@@ -41,9 +42,10 @@ def read_params_state(path: str) -> ParamsState:
 @hydra.main(config_path="cfg", config_name="rubiks_cube")
 def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
 
-    logging.info(omegaconf.OmegaConf.to_yaml(cfg))
     logging.getLogger().setLevel(logging.INFO)
+    logging.info(omegaconf.OmegaConf.to_yaml(cfg))
     logging.info({"devices": jax.local_devices()})
+    logging.info("working directory: %s", os.getcwd())
 
     train_key = jax.random.PRNGKey(cfg.seed.train)
     train_eval_key, final_eval_key = split_key(jax.random.PRNGKey(cfg.seed.evaluation))
@@ -51,7 +53,7 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
     logger = instantiate(cfg.logger)
     env = VmapAutoResetWrapper(jum.make(cfg.environment_id))
     agent = instantiate(cfg.agent)(env)
-    training_state = _training_state(env, agent, train_key, cfg.get("params_path"))
+    train_state = _train_state(env, agent, train_key, cfg.get("params_path"))
 
     epoch_steps = (
         cfg.training.envs_in_parallel
@@ -71,15 +73,18 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
     }
 
     @partial(jax.pmap, axis_name="devices")
-    def epoch_fn(training_state: TrainingState) -> Tuple[TrainingState, Dict]:
-        training_state, metrics = jax.lax.scan(
-            lambda training_state, _: agent.run_epoch(training_state),
-            training_state,
+    def epoch_fn(train_state: TrainState) -> Tuple[TrainState, Dict]:
+        """Runs `agent.training_iteration` for `cfg.training.num_learner_updates_per_epoch`
+        repetitions and returns the eventual `train_state` and the mean of `metrics`.
+        """
+        train_state, metrics = jax.lax.scan(
+            lambda train_state, _: agent.training_iteration(train_state),
+            train_state,
             None,
             cfg.training.num_learner_updates_per_epoch,
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
-        return training_state, metrics
+        return train_state, metrics
 
     logging.info("Starting training. The time budget is %.1f sec", cfg.training.time_budget)
 
@@ -91,7 +96,7 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
             _train_eval_key, train_eval_key = split_key(train_eval_key)
 
             for eval_id, metrics in evaluate(
-                training_state=training_state,
+                train_state=train_state,
                 evaluators=evaluators,
                 key=_train_eval_key,
                 timer=eval_timer,
@@ -104,8 +109,8 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
 
             # training
             with train_timer:
-                training_state, metrics = epoch_fn(training_state)
-                jax.block_until_ready((training_state, metrics))
+                train_state, metrics = epoch_fn(train_state)
+                jax.block_until_ready((train_state, metrics))
 
             logger.write(data=first_from_device(metrics), label="train", env_steps=total_steps)
 
@@ -116,10 +121,11 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
             total_steps += epoch_steps
             epi += 1
 
+            epi_dgt = epi % 10
             logging.info(
                 "The %d%s epoch finished in %.1f sec. Remaining time credit: %.1f sec",
                 epi,
-                "st" if epi == 1 else "nd" if epi == 2 else "rd" if epi == 3 else "th",
+                "st" if epi_dgt == 1 else "nd" if epi_dgt == 2 else "rd" if epi_dgt == 3 else "th",
                 last_epoch_t,
                 remaining_t,
             )
@@ -131,7 +137,7 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
         )
 
         for eval_id, metrics in evaluate(
-            training_state=training_state,
+            train_state=train_state,
             evaluators=evaluators,
             key=final_eval_key,
             timer=eval_timer,
@@ -143,15 +149,10 @@ def main(cfg: omegaconf.DictConfig, log_compiles: bool = False) -> None:
 
         params_path = "params_state.pkl"
         logging.info("Storing the parameters of the agent and its training at %s", params_path)
-        write_params_state(training_state.params_state, params_path)
+        write_params_state(train_state.params_state, params_path)
 
 
-def _training_state(
-    env: jum.Environment,
-    agent: Agent,
-    key: PRNGKey,
-    params_path: str | None,
-) -> TrainingState:
+def _train_state(env: jum.Environment, agent, key: PRNGKey, params_path: str | None) -> TrainState:
 
     params_key, reset_key, acting_key = split_key(key, 3)
 
@@ -170,6 +171,7 @@ def _training_state(
     reset_keys = split_key(reset_key, agent.total_batch_size).reshape(
         (num_workers, num_local_devices, local_batch_size, -1)
     )
+    # The environment initialization is unique per process
     env_state, timestep = jax.pmap(env.reset, axis_name="devices")(reset_keys[jax.process_index()])
 
     # Initialize acting states
@@ -185,7 +187,7 @@ def _training_state(
         env_step_count=jnp.zeros(num_local_devices, float),
     )
 
-    return TrainingState(
+    return TrainState(
         params_state=jax.device_put_replicated(params_state, jax.local_devices()),
         acting_state=acting_state,
     )
@@ -236,14 +238,14 @@ class Timer(AbstractContextManager):
             self._variables_exit[("metrics", metrics_id)].update(data)
 
 
-def evaluate(training_state, evaluators: Dict[str, Evaluator], key, timer: Timer):
+def evaluate(train_state, evaluators: Dict[str, Evaluator], key, timer: Timer):
 
     all_metrics = {}
 
     for eval_id, evaluator in evaluators.items():
         eval_key, key = split_key(key)
         with timer:
-            metrics = evaluator.run_evaluation(training_state.params_state, eval_key)
+            metrics = evaluator.run_evaluation(train_state.params_state, eval_key)
             jax.block_until_ready(metrics)
         all_metrics[eval_id] = metrics
 
