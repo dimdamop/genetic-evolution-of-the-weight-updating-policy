@@ -315,7 +315,7 @@ if __name__ == "__main__":
         "DEBUG": 1,
     }
 
-    rng = jax.random.PRNGKey(30)
+    rng = jax.random.PRNGKey(7)
     trainer = make_train(_conf)
     if _conf["DEBUG"] > 1:
         trainer = jax.jit(trainer)
