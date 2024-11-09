@@ -89,8 +89,7 @@ def make_train(conf):
             env.action_space(env_params).shape[0], activation=conf["ACTIVATION"]
         )
         rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(env.observation_space(env_params).shape)
-        network_params = network.init(_rng, init_x)
+        network_params = network.init(_rng, jnp.zeros(env.observation_space(env_params).shape))
         if conf["ANNEAL_LR"]:
             tx = optax.chain(
                 optax.clip_by_global_norm(conf["MAX_GRAD_NORM"]),
