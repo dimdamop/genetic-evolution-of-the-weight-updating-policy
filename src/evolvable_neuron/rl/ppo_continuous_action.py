@@ -282,7 +282,12 @@ def make_train(conf):
 
 if __name__ == "__main__":
     conf = {
+
+        # Maximum learning rate
         "LR": 3e-4,
+
+        # Whether to linearly ramp up the learning rate till it reaches `conf["LR"]
+        "ANNEAL_LR": False,
 
         # Number of actors
         "NUM_ENVS": 2048,
@@ -303,7 +308,6 @@ if __name__ == "__main__":
         "MAX_GRAD_NORM": 0.5,
         "ACTIVATION": "tanh",
         "ENV_NAME": "hopper",
-        "ANNEAL_LR": False,
         "NORMALIZE_ENV": True,
         "DEBUG": 1,
     }
