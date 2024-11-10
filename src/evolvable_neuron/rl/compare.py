@@ -1,17 +1,17 @@
 import numpy as np
 
-keep_last = 100
-num_trials = 12
+keep_last = 50
+num_trials = 7
 
 trials = {}
 
-for key in "prev-", "../../../../purejaxrl/purejaxrl/":
+for key in "-prev", "":
 
     min_len = None
     curr_trials = []
 
     for i in range(num_trials):
-        with open(f"{key}{i + 1}.out") as fd:
+        with open(f"{i + 1}{key}.out") as fd:
             trial = np.array([float(line.rsplit("=", maxsplit=1)[1].strip()) for line in fd])
         min_len = min(len(trial), min_len) if min_len else len(trial)
         curr_trials.append(trial)
