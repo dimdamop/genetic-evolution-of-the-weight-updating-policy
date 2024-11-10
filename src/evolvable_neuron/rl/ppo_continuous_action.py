@@ -62,6 +62,7 @@ def make_train(conf):
 
     num_updates = conf["len"]["TOTAL_TIMESTEPS"] // conf["len"]["STEPS"] // conf["len"]["ENVS"]
     minibatch_size = conf["len"]["ENVS"] * conf["len"]["STEPS"] // conf["len"]["MINIBATCHES"]
+
     env, env_params = BraxGymnaxWrapper(conf["env"]["NAME"]), None
     env = LogWrapper(env)
     env = ClipAction(env)
@@ -75,11 +76,10 @@ def make_train(conf):
         frac = 1.0 - (count // (conf["len"]["MINIBATCHES"] * conf["len"]["EPOCHS"])) / num_updates
         return conf["learn"]["LR"] * frac
 
-    def train(rng):
-        # INIT NETWORK
+    def train(rng, network_params):
+
         network = ActorCritic(env.action_space(env_params).shape[0], activation=conf["ACTIVATION"])
-        rng, _rng = jax.random.split(rng)
-        network_params = network.init(_rng, jnp.zeros(env.observation_space(env_params).shape))
+
         if conf["learn"]["ANNEAL_LR"]:
             tx = optax.chain(
                 optax.clip_by_global_norm(conf["learn"]["MAX_GRAD_NORM"]),
@@ -276,7 +276,12 @@ if __name__ == "__main__":
         "MAX_GRAD_NORM": 0.5,
     }
 
-    env_conf = {"NAME": "hopper", "NORMALIZE": True}
+    env_conf = {
+        "NAME": "hopper",
+        "NORMALIZE": True,
+        "action_dim": 3,
+        "observation_dim": 11,
+    }
 
     conf = {
         "ACTIVATION": "tanh",
@@ -286,9 +291,13 @@ if __name__ == "__main__":
         "env": env_conf,
     }
 
-    rng = jax.random.PRNGKey(12)
-    trainer = make_train(conf)
+    rng = jax.random.PRNGKey(4)
 
-    if conf["DEBUG"] <= 1:
-        train_jit = jax.jit(make_train(conf))
-    out = train_jit(rng)
+    # INIT NETWORK PARAMS
+    network = ActorCritic(conf["env"]["action_dim"], activation=conf["ACTIVATION"])
+    rng, _rng = jax.random.split(rng)
+    network_params = network.init(_rng, jnp.zeros(conf["env"]["observation_dim"]))
+
+    trainer = jax.jit(make_train(conf)) if conf["DEBUG"] <= 1 else make_train(conf)
+
+    out = trainer(rng=rng, network_params=network_params)
