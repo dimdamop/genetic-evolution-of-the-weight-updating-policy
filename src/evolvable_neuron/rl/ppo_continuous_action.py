@@ -249,8 +249,7 @@ def make_train(conf):
     return train
 
 
-if __name__ == "__main__":
-
+def main():
     length_conf = {
         # Number of actors
         "ENVS": 2048,
@@ -301,3 +300,7 @@ if __name__ == "__main__":
     trainer = jax.jit(make_train(conf)) if conf["DEBUG"] <= 1 else make_train(conf)
 
     out = trainer(rng=rng, network_params=network_params)
+
+
+if __name__ == "__main__":
+    main()
