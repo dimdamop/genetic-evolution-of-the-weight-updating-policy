@@ -78,7 +78,7 @@ def make_train(conf):
 
     def train(rng, network_params):
 
-        network = ActorCritic(env.action_space(env_params).shape[0], activation=conf["ACTIVATION"])
+        network = ActorCritic(env.action_space(env_params).shape[0])
 
         if conf["learn"]["ANNEAL_LR"]:
             tx = optax.chain(
@@ -244,7 +244,7 @@ def make_train(conf):
         rng, _rng = jax.random.split(rng)
         runner_state = (train_state, env_state, obsv, _rng)
         runner_state, metric = jax.lax.scan(_update_step, runner_state, None, num_updates)
-        return {"runner_state": runner_state, "metrics": metric}
+        return runner_state[0].params
 
     return train
 
@@ -283,17 +283,16 @@ def main():
     }
 
     conf = {
-        "ACTIVATION": "tanh",
         "DEBUG": 1,
         "len": length_conf,
         "learn": learn_conf,
         "env": env_conf,
     }
 
-    rng = jax.random.PRNGKey(4)
+    rng = jax.random.PRNGKey(7)
 
     # INIT NETWORK PARAMS
-    network = ActorCritic(conf["env"]["action_dim"], activation=conf["ACTIVATION"])
+    network = ActorCritic(conf["env"]["action_dim"])
     rng, _rng = jax.random.split(rng)
     network_params = network.init(_rng, jnp.zeros(conf["env"]["observation_dim"]))
 
