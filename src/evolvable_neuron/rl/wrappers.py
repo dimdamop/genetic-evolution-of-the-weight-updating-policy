@@ -220,8 +220,8 @@ class VecEnv(GymnaxWrapper):
 
 @struct.dataclass
 class NormalizeVecObsEnvState:
-    mean: jnp.ndarray
-    var: jnp.ndarray
+    mean: jax.Array
+    var: jax.Array
     count: float
     env_state: environment.EnvState
 
@@ -295,8 +295,8 @@ class NormalizeVecObservation(GymnaxWrapper):
 
 @struct.dataclass
 class NormalizeVecRewEnvState:
-    mean: jnp.ndarray
-    var: jnp.ndarray
+    mean: jax.Array
+    var: jax.Array
     count: float
     return_val: float
     env_state: environment.EnvState

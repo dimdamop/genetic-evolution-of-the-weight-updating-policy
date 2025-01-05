@@ -13,6 +13,7 @@ from evolvable_neuron.rl.wrappers import (
     VecEnv,
     NormalizeVecObservation,
     NormalizeVecReward,
+    NormalizeVecRewEnvState,
     ClipAction,
 )
 
@@ -49,83 +50,81 @@ class ActorCritic(nn.Module):
 
 
 class Transition(NamedTuple):
-    done: jnp.ndarray
-    action: jnp.ndarray
-    value: jnp.ndarray
-    reward: jnp.ndarray
-    log_prob: jnp.ndarray
-    obs: jnp.ndarray
-    info: jnp.ndarray
+    done: jax.Array
+    action: jax.Array
+    value: jax.Array
+    reward: jax.Array
+    log_prob: jax.Array
+    obs: jax.Array
+    info: jax.Array
 
 
-def make_train(conf):
+class RunnerState(NamedTuple):
+    train_state: TrainState
+    env_state: NormalizeVecRewEnvState
+    last_obs: jax.Array
+    rng: jax.Array
 
-    num_updates = conf["len"]["TOTAL_TIMESTEPS"] // conf["len"]["STEPS"] // conf["len"]["ENVS"]
-    minibatch_size = conf["len"]["ENVS"] * conf["len"]["STEPS"] // conf["len"]["MINIBATCHES"]
 
-    env, env_params = BraxGymnaxWrapper(conf["env"]["NAME"]), None
+def env_step(runner_state, env, env_params, num_actors: int):
+    """collect trajectories"""
+
+    train_state, env_state, last_obs, rng = runner_state
+
+    # SELECT ACTION
+    rng, _rng = jax.random.split(rng)
+    pi, value = train_state.apply_fn(train_state.params, last_obs)
+    action = pi.sample(seed=_rng)
+    log_prob = pi.log_prob(action)
+
+    # STEP ENV
+    rng, _rng = jax.random.split(rng)
+    rng_step = jax.random.split(_rng, num_actors)
+    obsv, env_state, reward, done, info = env.step(
+        rng_step, env_state, action, env_params
+    )
+    transition = Transition(done, action, value, reward, log_prob, last_obs, info)
+    runner_state = train_state, env_state, obsv, rng
+
+    return runner_state, transition
+
+
+def makeenv(name: str, normalize: bool, gamma: float):
+    env = BraxGymnaxWrapper(name)
     env = LogWrapper(env)
     env = ClipAction(env)
     env = VecEnv(env)
 
-    if conf["env"]["NORMALIZE"]:
+    if normalize:
         env = NormalizeVecObservation(env)
-        env = NormalizeVecReward(env, conf["learn"]["GAMMA"])
+        env = NormalizeVecReward(env, gamma)
+    return env, None
 
-    def linear_schedule(count):
-        frac = 1.0 - (count // (conf["len"]["MINIBATCHES"] * conf["len"]["EPOCHS"])) / num_updates
-        return conf["learn"]["LR"] * frac
 
-    def train(rng, network_params):
+def make_train(conf):
 
-        network = ActorCritic(env.action_space(env_params).shape[0])
+    env, env_params = makeenv(conf["env"]["NAME"], conf["env"]["NORMALIZE"], conf["learn"]["GAMMA"])
 
-        if conf["learn"]["ANNEAL_LR"]:
-            tx = optax.chain(
-                optax.clip_by_global_norm(conf["learn"]["MAX_GRAD_NORM"]),
-                optax.adam(learning_rate=linear_schedule, eps=1e-5),
-            )
-        else:
-            tx = optax.chain(
-                optax.clip_by_global_norm(conf["learn"]["MAX_GRAD_NORM"]),
-                optax.adam(conf["learn"]["LR"], eps=1e-5),
-            )
-        train_state = TrainState.create(apply_fn=network.apply, params=network_params, tx=tx)
-
-        # INIT ENV
-        rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, conf["len"]["ENVS"])
-        obsv, env_state = env.reset(reset_rng, env_params)
-
+    def train(rng, train_state: TrainState, num_updates: int):
         # TRAIN LOOP
         def _update_step(runner_state, unused):
-            # COLLECT TRAJECTORIES
+
             def _env_step(runner_state, unused):
-                train_state, env_state, last_obs, rng = runner_state
-
-                # SELECT ACTION
-                rng, _rng = jax.random.split(rng)
-                pi, value = network.apply(train_state.params, last_obs)
-                action = pi.sample(seed=_rng)
-                log_prob = pi.log_prob(action)
-
-                # STEP ENV
-                rng, _rng = jax.random.split(rng)
-                rng_step = jax.random.split(_rng, conf["len"]["ENVS"])
-                obsv, env_state, reward, done, info = env.step(
-                    rng_step, env_state, action, env_params
+                return env_step(
+                    runner_state=runner_state,
+                    env=env,
+                    env_params=env_params,
+                    num_actors=conf["len"]["ENVS"],
                 )
-                transition = Transition(done, action, value, reward, log_prob, last_obs, info)
-                runner_state = (train_state, env_state, obsv, rng)
-                return runner_state, transition
 
+            # COLLECT TRAJECTORIES
             runner_state, traj_batch = jax.lax.scan(
                 _env_step, runner_state, None, conf["len"]["STEPS"]
             )
 
             # CALCULATE ADVANTAGE
             train_state, env_state, last_obs, rng = runner_state
-            _, last_val = network.apply(train_state.params, last_obs)
+            _, last_val = train_state.apply_fn(train_state.params, last_obs)
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
@@ -155,12 +154,12 @@ def make_train(conf):
 
             # UPDATE NETWORK
             def _update_epoch(update_state, unused):
-                def _update_minbatch(train_state, batch_info):
+                def _update_minibatch(train_state, batch_info):
                     traj_batch, advantages, targets = batch_info
 
                     def _loss_fn(params, traj_batch, gae, targets):
                         # RERUN NETWORK
-                        pi, value = network.apply(params, traj_batch.obs)
+                        pi, value = train_state.apply_fn(params, traj_batch.obs)
                         log_prob = pi.log_prob(traj_batch.action)
 
                         # CALCULATE VALUE LOSS
@@ -201,10 +200,7 @@ def make_train(conf):
 
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
-                batch_size = minibatch_size * conf["len"]["MINIBATCHES"]
-                assert (
-                    batch_size == conf["len"]["STEPS"] * conf["len"]["ENVS"]
-                ), "batch size must be equal to number of steps * number of envs"
+                batch_size = conf["len"]["STEPS"] * conf["len"]["ENVS"]
                 permutation = jax.random.permutation(_rng, batch_size)
                 batch = (traj_batch, advantages, targets)
                 batch = jax.tree_util.tree_map(
@@ -217,7 +213,7 @@ def make_train(conf):
                     lambda x: jnp.reshape(x, [conf["len"]["MINIBATCHES"], -1] + list(x.shape[1:])),
                     shuffled_batch,
                 )
-                train_state, total_loss = jax.lax.scan(_update_minbatch, train_state, minibatches)
+                train_state, total_loss = jax.lax.scan(_update_minibatch, train_state, minibatches)
                 update_state = (train_state, traj_batch, advantages, targets, rng)
                 return update_state, total_loss
 
@@ -241,9 +237,14 @@ def make_train(conf):
             runner_state = (train_state, env_state, last_obs, rng)
             return runner_state, metric
 
+        # INIT ENV
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, env_state, obsv, _rng)
-        runner_state, metric = jax.lax.scan(_update_step, runner_state, None, num_updates)
+        reset_rng = jax.random.split(_rng, conf["len"]["ENVS"])
+        obsv, env_state = env.reset(reset_rng, env_params)
+
+        runner_state = train_state, env_state, obsv, rng
+        # runner_state, metric = jax.lax.scan(_update_step, runner_state, None, 1_000)
+        runner_state, metric = jax.lax.scan(_update_step, runner_state, None, 1_00)
         return runner_state[0].params
 
     return train
@@ -251,12 +252,11 @@ def make_train(conf):
 
 def main():
     length_conf = {
-        # Number of actors
+        # Number of actors to collect trajectories from
         "ENVS": 2048,
-        # Number of steps to let a single actor act on an environment per computation of the
-        # advantages the target values for the value network.
+        # Number of actor/environment interactions (steps) per epoch, per environment and per actor
         "STEPS": 10,
-        # Total number of actor/environment interactions per epoch (across actors)
+        # Total number of steps for the entire duration of training
         "TOTAL_TIMESTEPS": 5e7,
         "EPOCHS": 4,
         "MINIBATCHES": 32,
@@ -265,8 +265,6 @@ def main():
     learn_conf = {
         # Maximum learning rate
         "LR": 3e-4,
-        # Whether to linearly ramp up the learning rate till it reaches `conf["learn"]["LR"]`
-        "ANNEAL_LR": False,
         "GAMMA": 0.99,
         "GAE_LAMBDA": 0.95,
         "CLIP_EPS": 0.2,
@@ -289,16 +287,29 @@ def main():
         "env": env_conf,
     }
 
-    rng = jax.random.PRNGKey(7)
+    rng = jax.random.PRNGKey(23)
 
     # INIT NETWORK PARAMS
     network = ActorCritic(conf["env"]["action_dim"])
     rng, _rng = jax.random.split(rng)
     network_params = network.init(_rng, jnp.zeros(conf["env"]["observation_dim"]))
+    tx = optax.chain(
+        optax.clip_by_global_norm(conf["learn"]["MAX_GRAD_NORM"]),
+        optax.adam(conf["learn"]["LR"], eps=1e-5),
+    )
+    train_state = TrainState.create(
+        apply_fn=network.apply,
+        params=network_params,
+        tx=tx,
+    )
 
     trainer = jax.jit(make_train(conf)) if conf["DEBUG"] <= 1 else make_train(conf)
 
-    out = trainer(rng=rng, network_params=network_params)
+    all_updates = conf["len"]["TOTAL_TIMESTEPS"] // conf["len"]["STEPS"] // conf["len"]["ENVS"]
+    cut = 1_000
+
+    for _ in range(0, int(all_updates), cut):
+        train_state = trainer(rng=rng, train_state=train_state, num_updates=cut)
 
 
 if __name__ == "__main__":
