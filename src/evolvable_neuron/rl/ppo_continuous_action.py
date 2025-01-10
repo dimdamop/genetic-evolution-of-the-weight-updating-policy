@@ -234,7 +234,7 @@ def make_train(conf):
 
                 jax.debug.callback(callback, metric)
 
-            runner_state = (train_state, env_state, last_obs, rng)
+            runner_state = train_state, env_state, last_obs, rng
             return runner_state, metric
 
         # INIT ENV
@@ -243,9 +243,8 @@ def make_train(conf):
         obsv, env_state = env.reset(reset_rng, env_params)
 
         runner_state = train_state, env_state, obsv, rng
-        # runner_state, metric = jax.lax.scan(_update_step, runner_state, None, 1_000)
-        runner_state, metric = jax.lax.scan(_update_step, runner_state, None, 1_00)
-        return runner_state[0].params
+        runner_state, metric = jax.lax.scan(_update_step, runner_state, None, 1_000)
+        return runner_state[0]
 
     return train
 
