@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# eval "$(conda shell.bash hook)"
-# conda env create --prefix ./env --file conda-env.yaml
-# conda activate ./env
+eval "$(conda shell.bash hook)"
+conda env create --prefix ./env --file conda-env.yaml
+conda activate ./env
 pip install \
     "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html \
     numpy \
@@ -22,4 +22,5 @@ pip install \
     wandb \
     flashbax \
     navix \
-    gymnax
+    gymnax \
+    orbax
