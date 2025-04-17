@@ -75,8 +75,8 @@ B : "b"
 DEPTH : "depth"
 S0 : "s0"
 S1 : "s1"
-W_VEC : "w"
-INPUT_VEC : "inp"
+W_VEC : "W"
+INPUT_VEC : "inputs"
 IS_S0_POSITIVE : "S0 > 0"
 
 sep : "_"
@@ -138,8 +138,8 @@ s_assign : s_varname assign_kw  s_expr
 v_assign : v_varname assign_kw  v_expr
 assign : b_assign | s_assign | v_assign
 indented_assign : tab assign nl
-indented_ret : tab ret
+indented_ret : tab ret s_expr nl
 IMPORTS : "import jax.numpy as jnp\n\n\n"
-HEADER : "def dense(w, b, aux_params, inp, depth):\n"
-PARAMS_UNPACKING : "    s0, s1 = aux_params\n"
+HEADER : "def dense(params, inputs):\n"
+PARAMS_UNPACKING : "    W, b, depth, s0, s1 = params\n"
 start : IMPORTS HEADER PARAMS_UNPACKING indented_assign* indented_ret

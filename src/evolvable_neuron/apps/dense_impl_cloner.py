@@ -11,13 +11,21 @@ from evolvable_neuron.cloning import __file__ as cloning_module_path
 
 
 def get_args() -> Namespace:
+
+    def_pull_factor = 0.05
+
     argparser = ArgumentParser()
     argparser.add_argument("--src-impl-path")
     argparser.add_argument("--dst-impl-path")
     argparser.add_argument("--mutation-rate", type=float)
     argparser.add_argument("--must-mutate", action="store_true")
     argparser.add_argument("--min-cloning-iters", type=int)
-    argparser.add_argument("--new-expr-pull-factor", type=float)
+    argparser.add_argument(
+        "--new-expr-pull-factor",
+        type=float,
+        default=def_pull_factor,
+        help=f"Defaults to {def_pull_factor}",
+    )
     argparser.add_argument("--random-seed", type=int)
 
     args = argparser.parse_args()
