@@ -97,7 +97,7 @@ def test_supervised_mog_classification_mlp(mog_ds, mlp, tx, epochs) -> None:
         y_true = mog_ds[1].reshape(-1)
         y_logits = mlp.apply(params, mog_ds[0].reshape((1, -1, mog_ds[0].shape[-1])))
         y_pred = y_logits.argmax(axis=-1).reshape(-1)
-    
+
         accuracy = float((y_true == y_pred).mean())
         print(f"{accuracy=}\n\n")
 
