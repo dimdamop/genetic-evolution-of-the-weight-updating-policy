@@ -137,12 +137,10 @@ class Transition(NamedTuple):
 
 def make_train(config):
     def train(rng):
-        # INIT ENV
         rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(_rng, CONFIG["NUM_ENVS"])
         obsv, env_state = ENV.reset(reset_rng, ENV_PARAMS)
 
-        # TRAIN LOOP
         def _update_step(runner_state, unused):
             # COLLECT TRAJECTORIES
             def _env_step(runner_state, unused):
@@ -169,7 +167,6 @@ def make_train(config):
                 _env_step, runner_state, None, CONFIG["NUM_STEPS"]
             )
 
-            # CALCULATE ADVANTAGE
             train_state, env_state, last_obs, rng = runner_state
             _, last_val = NETWORK.apply(train_state.params, last_obs)
 
