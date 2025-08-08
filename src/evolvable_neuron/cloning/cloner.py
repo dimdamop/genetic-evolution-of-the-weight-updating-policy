@@ -14,23 +14,36 @@ def _choice(rng, seq):
     return seq[rng.choice(len(seq))]
 
 
-def _varname2str(tree: Tree):
-    if str(tree.data) == "b_varname":
+class NoVariableAvailableException(Exception):
+    pass
+
+
+class NotAnAssignmentException(Exception):
+    pass
+
+
+def _tree_varname2str(tree: Tree) -> str:
+    try:
+        str_data = str(tree.data)
+    except AttributeError:
+        raise NotAnAssignmentException
+
+    if str_data == "b_varname":
         noon = tree.children[2].data
         adj = tree.children[4].data
         return f"is_{noon}_{adj}"
 
-    if str(tree.data) == "s_varname":
+    if str_data == "s_varname":
         adj = tree.children[0].data
         noon = tree.children[2].data
         return f"{adj}_{noon}"
 
-    if str(tree.data) == "v_varname":
+    if str_data == "v_varname":
         adj = tree.children[0].children[0].data
         noon = tree.children[0].children[2].data
         return f"{adj}_{noon}s"
 
-    raise ValueError(tree)
+    raise NotAnAssignmentException()
 
 
 class VarnameGenerator(Visitor):
@@ -86,7 +99,7 @@ class VarnameGenerator(Visitor):
             varname = getattr(self, f"generate_{vartype[0]}_varname")(rng)
             is_observed = False
             for existing_varname in self.varnames[vartype]:
-                if _varname2str(existing_varname) == _varname2str(varname):
+                if _tree_varname2str(existing_varname) == _tree_varname2str(varname):
                     is_observed = True
                     break
             if not is_observed:
@@ -94,9 +107,6 @@ class VarnameGenerator(Visitor):
 
 
 class Cloner(Transformer):
-    class NoVariable(Exception):
-        pass
-
     def __init__(
         self,
         grammar: Grammar,
@@ -164,30 +174,52 @@ class Cloner(Transformer):
         return Tree(data, children, meta)
 
     @classmethod
-    def _used_varnames(cls, tree) -> List[Tree]:
-        retval = []
-        for child in tree.children:
-            if hasattr(child, "data"):
-                if str(child.data)[2:] == "varname":
-                    retval.append(child)
-                else:
-                    retval += cls._used_varnames(child)
-        return retval
+    def varnames_in_assignment(cls, tree, strict=True) -> List[str]:
+        varnames = []
+
+        try:
+            if strict:
+                children = tree.children[0].children[2].children
+            else:
+                children = tree.children
+        except (AttributeError, IndexError):
+            return varnames
+
+        for child in children:
+            try:
+                new_varnames = [_tree_varname2str(child)]
+            except NotAnAssignmentException:
+                new_varnames = cls.varnames_in_assignment(child)
+
+            for varname in new_varnames:
+                if varname not in varnames:
+                    varnames.append(varname)
+
+        return varnames
 
     def start(self, children):
         ret_stmnt = children[-1]
         assignments = self._all_assignments + list(self._curr_new_assignments)
-
-        if self.remove_unused_variables:
+        if self.remove_unused_variables and len(assignments):
             debug("Removing unused variables...")
-            used_varnames = self._used_varnames(ret_stmnt.children[2])
-            assignments = [
-                assignment
-                for assignment in assignments
-                if assignment.children[1].children[0].children[0] in used_varnames
-            ]
 
-        return Tree(data="start", children=children[:3] + assignments + [ret_stmnt])
+            assignment_of_varname = {
+                _tree_varname2str(a.children[1].children[0].children[0]): a for a in assignments
+            }
+
+            used_varnames = []
+
+            def update_used_varnames(assignment: Tree, strict=True) -> None:
+                for varname in self.varnames_in_assignment(assignment, strict=strict):
+                    if varname not in used_varnames:
+                        update_used_varnames(assignment_of_varname[varname])
+                        used_varnames.append(varname)
+            update_used_varnames(ret_stmnt.children[2], strict=False)
+            used_assignments = [assignment_of_varname[v] for v in used_varnames[::-1]]
+        else:
+            used_assignments = assignments
+        
+        return Tree(data="start", children=children[:3] + used_assignments + [ret_stmnt])
 
     def assign(self, children):
         if len(children) != 1:
@@ -236,7 +268,7 @@ class Cloner(Transformer):
         while True:
             try:
                 expr = getattr(self, "new_" + _choice(self.rng, expr_options))()
-            except Cloner.NoVariable:
+            except NoVariableAvailableException:
                 pass
             else:
                 break
@@ -257,7 +289,7 @@ class Cloner(Transformer):
         assignment = getattr(self, f"new_{assignment_type}")(varname, expr)
         self._available_varnames[assignment_type].append(varname)
         self._curr_new_assignments.append(assignment)
-        debug("Placing an expression in an assignment with varname %s...", _varname2str(varname))
+        debug("Placing an expression in an '%s' assignment...", _tree_varname2str(varname))
         return getattr(self, f"new_{expr_id}_var_expr")(varname)
 
     def new_b_assign(self, varname, expr) -> Tree:
@@ -408,7 +440,7 @@ class Cloner(Transformer):
 
         if varname is None:
             if not len(self._available_varnames["b_assign"]):
-                raise Cloner.NoVariable()
+                raise NoVariableAvailableException()
 
             varname = _choice(self.rng, self._available_varnames["b_assign"])
 
@@ -418,7 +450,7 @@ class Cloner(Transformer):
         # bconst : IS_S0_POSITIVE
         # bconst -> b_const_expr
 
-        const_tree = Tree(Token("IS_S0_POSITIVE", "S0 > 0"), [])
+        const_tree = Tree(Token("IS_S0_POSITIVE", "s0 > 0"), [])
         return Tree(data="b_const_expr", children=[Tree(Token("RULE", "bconst"), [const_tree])])
 
     def new_s2s_expr(self) -> Tree:
@@ -592,7 +624,7 @@ class Cloner(Transformer):
 
         if varname is None:
             if not len(self._available_varnames["s_assign"]):
-                raise Cloner.NoVariable()
+                raise NoVariableAvailableException()
 
             varname = _choice(self.rng, self._available_varnames["s_assign"])
 
@@ -678,7 +710,8 @@ class Cloner(Transformer):
 
         if varname is None:
             if not len(self._available_varnames["v_assign"]):
-                raise Cloner.NoVariable()
+                raise NoVariableAvailableException()
+
 
             varname = _choice(self.rng, self._available_varnames["v_assign"])
 

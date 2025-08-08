@@ -27,6 +27,7 @@ def get_args() -> Namespace:
         help=f"Defaults to {def_pull_factor}",
     )
     argparser.add_argument("--random-seed", type=int)
+    argparser.add_argument("--keep-unused-variables", action="store_true")
 
     args = argparser.parse_args()
     args.min_cloning_iters = args.min_cloning_iters or 1
@@ -64,8 +65,10 @@ def main():
         info("Cloning iteration %d", cloning_iter)
         # We are not removing any unused variables if the minimum number of cloning iteratios has
         # been reached, because the definition of these variables might be the only mutation that
-        # has happened so far- if we undo them, then
-        cloner.remove_unused_variables = cloning_iter >= args.min_cloning_iters
+        # has happened so far.
+        cloner.remove_unused_variables = (
+            (not args.keep_unused_variables) and cloning_iter >= args.min_cloning_iters
+        )
         tree = cloner.transform(tree)
         has_mutated = has_mutated or cloner.has_mutated
         cloning_iter += 1

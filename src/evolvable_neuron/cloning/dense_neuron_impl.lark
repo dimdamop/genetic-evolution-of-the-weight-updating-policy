@@ -77,7 +77,7 @@ S0 : "s0"
 S1 : "s1"
 W_VEC : "W"
 INPUT_VEC : "inputs"
-IS_S0_POSITIVE : "S0 > 0"
+IS_S0_POSITIVE : "s0 > 0"
 
 sep : "_"
 plural : "s"
