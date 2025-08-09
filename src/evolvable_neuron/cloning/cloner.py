@@ -174,28 +174,29 @@ class Cloner(Transformer):
         return Tree(data, children, meta)
 
     @classmethod
-    def varnames_in_assignment(cls, tree, strict=True) -> List[str]:
-        varnames = []
+    def varnames_in_tree(cls, tree, varnames: List[str]) -> None:
 
         try:
-            if strict:
-                children = tree.children[0].children[2].children
-            else:
-                children = tree.children
-        except (AttributeError, IndexError):
-            return varnames
+            varnames.append(_tree_varname2str(tree))
+            return
+        except NotAnAssignmentException:
+            pass
+
+        try:
+            children = tree.children
+        except AttributeError:
+            return
+
+        # On assignments, we update the list of variables names on the right side, only
+        if tree.data == "assign":
+            children = children[0].children[2].children
 
         for child in children:
-            try:
-                new_varnames = [_tree_varname2str(child)]
-            except NotAnAssignmentException:
-                new_varnames = cls.varnames_in_assignment(child)
-
+            new_varnames = []
+            cls.varnames_in_tree(child, new_varnames)
             for varname in new_varnames:
                 if varname not in varnames:
                     varnames.append(varname)
-
-        return varnames
 
     def start(self, children):
         ret_stmnt = children[-1]
@@ -209,16 +210,19 @@ class Cloner(Transformer):
 
             used_varnames = []
 
-            def update_used_varnames(assignment: Tree, strict=True) -> None:
-                for varname in self.varnames_in_assignment(assignment, strict=strict):
+            def update_used_varnames(tree: Tree) -> None:
+                new_varnames = []
+                self.varnames_in_tree(tree, new_varnames)
+                for varname in new_varnames:
                     if varname not in used_varnames:
                         update_used_varnames(assignment_of_varname[varname])
                         used_varnames.append(varname)
-            update_used_varnames(ret_stmnt.children[2], strict=False)
-            used_assignments = [assignment_of_varname[v] for v in used_varnames[::-1]]
+
+            update_used_varnames(ret_stmnt)
+            used_assignments = [assignment_of_varname[v] for v in used_varnames]
         else:
             used_assignments = assignments
-        
+
         return Tree(data="start", children=children[:3] + used_assignments + [ret_stmnt])
 
     def assign(self, children):
