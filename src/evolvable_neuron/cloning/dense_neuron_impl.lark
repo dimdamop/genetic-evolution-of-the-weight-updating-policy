@@ -24,6 +24,18 @@ adjective : "aesthetic" -> aesthetic
     | "xanthous" -> xanthous
     | "yellow" -> yellow
     | "zymotic" -> zymotic
+    | "areal" -> areal
+    | "brutal" -> brutal
+    | "cheesy" -> cheesy
+    | "darwinian" -> darwinian
+    | "elaborate" -> elaborate
+    | "frozen" -> frozen
+    | "groovy" -> groovy
+    | "hopeful" -> hopeful
+    | "innate" -> innate
+    | "jumpy" -> jumpy
+    | "kind" -> kind
+    | "limited" -> limited
     | adjective grammar_and adjective
 
 grammar_and : "_and_"
