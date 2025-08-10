@@ -94,15 +94,24 @@ class VarnameGenerator(Visitor):
             [self.generate_s_varname(rng), Tree(Token("RULE", "plural"), [])],
         )
 
-    def generate_unobserved_varname(self, vartype: AssignTypeT, rng) -> str:
+    def generate_unobserved_varname(
+        self,
+        vartype: AssignTypeT,
+        rng,
+        append_to_observed: bool = True,
+    ) -> str:
         while True:
             varname = getattr(self, f"generate_{vartype[0]}_varname")(rng)
+            str_varname = _tree_varname2str(varname)
             is_observed = False
             for existing_varname in self.varnames[vartype]:
-                if _tree_varname2str(existing_varname) == _tree_varname2str(varname):
+                if _tree_varname2str(existing_varname) == str_varname:
                     is_observed = True
                     break
             if not is_observed:
+                if append_to_observed:
+                    self.varnames[vartype].append(varname)
+
                 return varname
 
 
