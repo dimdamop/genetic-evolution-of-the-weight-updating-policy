@@ -18,6 +18,10 @@ class NoVariableAvailableException(Exception):
     pass
 
 
+class NoUnobservedVarnameAvailable(Exception):
+    pass
+
+
 class NotAnAssignmentException(Exception):
     pass
 
@@ -99,7 +103,9 @@ class VarnameGenerator(Visitor):
         vartype: AssignTypeT,
         rng,
         append_to_observed: bool = True,
+        patience: int = 10000,
     ) -> str:
+        trial = 0
         while True:
             varname = getattr(self, f"generate_{vartype[0]}_varname")(rng)
             str_varname = _tree_varname2str(varname)
@@ -111,8 +117,15 @@ class VarnameGenerator(Visitor):
             if not is_observed:
                 if append_to_observed:
                     self.varnames[vartype].append(varname)
-
                 return varname
+
+            trial += 1
+            if trial == patience:
+                debug(
+                    "I tried %d times to generate an observed variable name of type %s. I abort",
+                    patience, vartype
+                )
+                raise NoUnobservedVarnameAvailable()
 
 
 class Cloner(Transformer):
