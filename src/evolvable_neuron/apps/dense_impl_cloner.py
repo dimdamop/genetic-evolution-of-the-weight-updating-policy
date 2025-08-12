@@ -63,12 +63,6 @@ def main():
 
     while args.must_mutate and not has_mutated or cloning_iter <= args.min_cloning_iters:
         info("Cloning iteration %d", cloning_iter)
-        # We are not removing any unused variables if the minimum number of cloning iteratios has
-        # been reached, because the definition of these variables might be the only mutation that
-        # has happened so far.
-        cloner.remove_unused_variables = (
-            (not args.keep_unused_variables) and cloning_iter >= args.min_cloning_iters
-        )
         tree = cloner.transform(tree)
         has_mutated = has_mutated or cloner.has_mutated
         cloning_iter += 1

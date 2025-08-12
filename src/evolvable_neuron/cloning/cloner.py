@@ -136,7 +136,7 @@ class Cloner(Transformer):
         new_expr_pull_factor: float | None = 0.05,
         seed: int | None = None,
         allow_all: bool = False,
-        remove_unused_variables: bool = False,
+        remove_unused_variables: bool = True,
         *args,
         **kwargs,
     ):
