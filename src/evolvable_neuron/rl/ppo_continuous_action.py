@@ -1,19 +1,27 @@
+import argparse
+import datetime
+import json
+import os
+from typing import Any, NamedTuple, Sequence
+
+import distrax
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import numpy as np
 import optax
+import orbax.checkpoint as ocp
+import pandas as pd
+from etils import epath
 from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
-import distrax
 from wrappers import (
-    LogWrapper,
     BraxGymnaxWrapper,
-    VecEnv,
+    ClipAction,
+    LogWrapper,
     NormalizeVecObservation,
     NormalizeVecReward,
-    ClipAction,
+    VecEnv,
 )
 
 
@@ -59,8 +67,15 @@ class Transition(NamedTuple):
 
 
 def make_train(config):
-    config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
-    config["MINIBATCH_SIZE"] = config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
+    config["NUM_UPDATES"] = int(
+        config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
+    )
+    config["MINIBATCH_SIZE"] = int(
+        config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
+    )
+
+    updates_per_chunk = np.ceil(config["NUM_UPDATES"] / config["NUM_CHECKPOINTS"]).astype(int)
+
     env, env_params = BraxGymnaxWrapper(config["ENV_NAME"]), None
     env = LogWrapper(env)
     env = ClipAction(env)
@@ -77,7 +92,7 @@ def make_train(config):
         )
         return config["LR"] * frac
 
-    def train(rng):
+    def train_init(rng):
         # INIT NETWORK
         network = ActorCritic(
             env.action_space(env_params).shape[0], activation=config["ACTIVATION"]
@@ -105,6 +120,14 @@ def make_train(config):
         rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
         obsv, env_state = env.reset(reset_rng, env_params)
+
+        return (train_state, env_state, obsv, rng)
+
+    def train_chunk(runner_state):
+
+        network = ActorCritic(
+            env.action_space(env_params).shape[0], activation=config["ACTIVATION"]
+        )
 
         # TRAIN LOOP
         def _update_step(runner_state, unused):
@@ -234,33 +257,30 @@ def make_train(config):
             train_state = update_state[0]
             metric = traj_batch.info
             rng = update_state[-1]
-            if config.get("DEBUG"):
-
-                def callback(info):
-                    return_values = info["returned_episode_returns"][info["returned_episode"]]
-                    timesteps = info["timestep"][info["returned_episode"]] * config["NUM_ENVS"]
-                    for t in range(len(timesteps)):
-                        print(f"global step={timesteps[t]}, episodic return={return_values[t]}")
-
-                jax.debug.callback(callback, metric)
 
             runner_state = (train_state, env_state, last_obs, rng)
             return runner_state, metric
 
-        rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, env_state, obsv, _rng)
-        runner_state, metric = jax.lax.scan(_update_step, runner_state, None, config["NUM_UPDATES"])
-        return {"runner_state": runner_state, "metrics": metric}
+        runner_state, metric = jax.lax.scan(_update_step, runner_state, None, updates_per_chunk)
+        return runner_state, metric
 
-    return train
+    return train_init, train_chunk
 
 
-if __name__ == "__main__":
+def cli():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config-filepath")
+    parser.add_argument("--random-seed", type=int, default=1)
+    parser.add_argument("--out-metrics-filepath")
+    parser.add_argument("--save-checkpoints-dirpath")
+    parser.add_argument("--load-checkpoint-filepath")
+    args = parser.parse_args()
+
     config = {
         "LR": 3e-4,
         "NUM_ENVS": 2048,
         "NUM_STEPS": 10,
-        "TOTAL_TIMESTEPS": 5e7,
+        "TOTAL_TIMESTEPS": 1e8,
         "UPDATE_EPOCHS": 4,
         "NUM_MINIBATCHES": 32,
         "GAMMA": 0.99,
@@ -273,8 +293,59 @@ if __name__ == "__main__":
         "ENV_NAME": "hopper",
         "ANNEAL_LR": False,
         "NORMALIZE_ENV": True,
-        "DEBUG": True,
+        "NUM_CHECKPOINTS": 25,
     }
-    rng = jax.random.PRNGKey(30)
-    train_jit = jax.jit(make_train(config))
-    out = train_jit(rng)
+
+    if args.config_filepath:
+        with open(args.config_filepath, "r") as fd:
+            config.update(json.load(fd))
+
+    return args, config
+
+
+def main():
+
+    args, config = cli()
+
+    train_init, train_chunk = make_train(config)
+
+    if args.load_checkpoint_filepath or args.save_checkpoints_dirpath:
+        checkpointer = ocp.PyTreeCheckpointer()
+
+    if args.load_checkpoint_filepath:
+        runner_state = checkpointer.restore(args.load_checkpoint_filepath)
+    else:
+        rng = jax.random.PRNGKey(args.random_seed)
+        runner_state = jax.jit(train_init)(rng)
+
+    train_chunk_jit = jax.jit(train_chunk)
+
+    if args.save_checkpoints_dirpath:
+        ckpt_dir = epath.Path(args.save_checkpoints_dirpath)
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.out_metrics_filepath:
+        reported_metrics = {"global_step": [], "chunk": [], "episodic_return": []}
+    else:
+        reported_metrics = None
+
+    for chunk in range(config["NUM_CHECKPOINTS"]):
+        runner_state, metrics = train_chunk_jit(runner_state)
+        if reported_metrics is not None:
+            return_values = metrics["returned_episode_returns"][metrics["returned_episode"]]
+            timesteps = metrics["timestep"][metrics["returned_episode"]] * config["NUM_ENVS"]
+            reported_metrics["global_step"] += timesteps.tolist()
+            reported_metrics["episodic_return"] += return_values.tolist()
+            reported_metrics["chunk"] += [chunk] * len(timesteps)
+
+        if args.save_checkpoints_dirpath:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            checkpoint_path = ckpt_dir / f"{timestamp}_{chunk + 1}_of_{config['NUM_CHECKPOINTS']}"
+            checkpointer.save(checkpoint_path, runner_state)
+
+    if reported_metrics is not None:
+        pd.DataFrame.from_dict(reported_metrics).to_csv(args.out_metrics_filepath, index=False)
+
+
+if __name__ == "__main__":
+    main()
