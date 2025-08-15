@@ -19,10 +19,16 @@ readme = "README.md"
 
 dynamic = ["version"]
 dependencies = [
-    "jax",
     "numpy",
+    "pandas",
     "lark",
-    "tensorflow",
+    "jax<0.7",
+    "flax",
+    "distrax",
+    "etils",
+    "orbax",
+    "gymnax",
+    "brax"
 ]
 requires-python = ">=3.12, < 3.13"
 

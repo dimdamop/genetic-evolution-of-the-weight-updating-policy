@@ -310,7 +310,7 @@ def main():
     train_init, train_chunk = make_train(config)
 
     if args.load_checkpoint_filepath or args.save_checkpoints_dirpath:
-        checkpointer = ocp.PyTreeCheckpointer()
+        checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
 
     if args.load_checkpoint_filepath:
         runner_state = checkpointer.restore(args.load_checkpoint_filepath)
@@ -341,7 +341,7 @@ def main():
         if args.save_checkpoints_dirpath:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             checkpoint_path = ckpt_dir / f"{timestamp}_{chunk + 1}_of_{config['NUM_CHECKPOINTS']}"
-            checkpointer.save(checkpoint_path, runner_state)
+            checkpointer.save(checkpoint_path, args=ocp.args.StandardSave(runner_state))
 
     if reported_metrics is not None:
         pd.DataFrame.from_dict(reported_metrics).to_csv(args.out_metrics_filepath, index=False)

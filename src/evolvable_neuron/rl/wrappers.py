@@ -1,10 +1,11 @@
+from functools import partial
+from typing import Any, Optional, Tuple, Union
+
+import chex
 import jax
 import jax.numpy as jnp
-import chex
 import numpy as np
 from flax import struct
-from functools import partial
-from typing import Optional, Tuple, Union, Any
 from gymnax.environments import environment, spaces
 
 
@@ -113,7 +114,7 @@ class BraxGymnaxWrapper:
     def __init__(self, env_name, backend="positional"):
 
         from brax import envs
-        from brax.envs.wrappers.training import EpisodeWrapper, AutoResetWrapper
+        from brax.envs.wrappers.training import AutoResetWrapper, EpisodeWrapper
 
         env = envs.get_environment(env_name=env_name, backend=backend)
         env = EpisodeWrapper(env, episode_length=1000, action_repeat=1)
