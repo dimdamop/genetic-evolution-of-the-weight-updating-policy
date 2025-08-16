@@ -7,3 +7,4 @@ outputs
 *.out
 *.sw?
 .vscode
+checkpoints

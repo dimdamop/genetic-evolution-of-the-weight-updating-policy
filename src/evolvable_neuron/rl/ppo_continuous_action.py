@@ -15,6 +15,7 @@ import pandas as pd
 from etils import epath
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
+from tqdm import trange
 from wrappers import (
     BraxGymnaxWrapper,
     ClipAction,
@@ -326,12 +327,10 @@ def main():
 
     if args.out_metrics_filepath:
         reported_metrics = {"global_step": [], "chunk": [], "episodic_return": []}
-    else:
-        reported_metrics = None
 
-    for chunk in range(config["NUM_CHECKPOINTS"]):
+    for chunk in trange(config["NUM_CHECKPOINTS"]):
         runner_state, metrics = train_chunk_jit(runner_state)
-        if reported_metrics is not None:
+        if args.out_metrics_filepath:
             return_values = metrics["returned_episode_returns"][metrics["returned_episode"]]
             timesteps = metrics["timestep"][metrics["returned_episode"]] * config["NUM_ENVS"]
             reported_metrics["global_step"] += timesteps.tolist()
@@ -339,12 +338,15 @@ def main():
             reported_metrics["chunk"] += [chunk] * len(timesteps)
 
         if args.save_checkpoints_dirpath:
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%Hh%Mm%Ss")
             checkpoint_path = ckpt_dir / f"{timestamp}_{chunk + 1}_of_{config['NUM_CHECKPOINTS']}"
             checkpointer.save(checkpoint_path, args=ocp.args.StandardSave(runner_state))
 
-    if reported_metrics is not None:
+    if args.out_metrics_filepath:
         pd.DataFrame.from_dict(reported_metrics).to_csv(args.out_metrics_filepath, index=False)
+
+    if args.save_checkpoints_dirpath:
+        checkpointer.wait_until_finished()
 
 
 if __name__ == "__main__":

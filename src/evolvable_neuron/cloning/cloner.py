@@ -123,7 +123,8 @@ class VarnameGenerator(Visitor):
             if trial == patience:
                 debug(
                     "I tried %d times to generate an observed variable name of type %s. I abort",
-                    patience, vartype
+                    patience,
+                    vartype,
                 )
                 raise NoUnobservedVarnameAvailable()
 
@@ -737,7 +738,6 @@ class Cloner(Transformer):
         if varname is None:
             if not len(self._available_varnames["v_assign"]):
                 raise NoVariableAvailableException()
-
 
             varname = _choice(self.rng, self._available_varnames["v_assign"])
 

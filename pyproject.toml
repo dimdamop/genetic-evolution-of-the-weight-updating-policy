@@ -28,7 +28,8 @@ dependencies = [
     "etils",
     "orbax",
     "gymnax",
-    "brax"
+    "brax",
+    "tqdm"
 ]
 requires-python = ">=3.12, < 3.13"
 
