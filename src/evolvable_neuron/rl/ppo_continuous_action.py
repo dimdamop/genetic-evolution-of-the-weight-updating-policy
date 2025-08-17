@@ -13,6 +13,7 @@ import optax
 import orbax.checkpoint as ocp
 import pandas as pd
 from etils import epath
+from flax import struct
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 from tqdm import trange
@@ -66,6 +67,11 @@ class Transition(NamedTuple):
     obs: jnp.ndarray
     info: jnp.ndarray
 
+
+# @struct.dataclass
+# class RunnerState:
+#     train: TrainState
+#     env_state, obsv, rng
 
 def make_train(config):
     config["NUM_UPDATES"] = int(
@@ -149,7 +155,7 @@ def make_train(config):
                     rng_step, env_state, action, env_params
                 )
                 transition = Transition(done, action, value, reward, log_prob, last_obs, info)
-                runner_state = (train_state, env_state, obsv, rng)
+                runner_state = train_state, env_state, obsv, rng
                 return runner_state, transition
 
             runner_state, traj_batch = jax.lax.scan(
@@ -236,7 +242,7 @@ def make_train(config):
                     batch_size == config["NUM_STEPS"] * config["NUM_ENVS"]
                 ), "batch size must be equal to number of steps * number of envs"
                 permutation = jax.random.permutation(_rng, batch_size)
-                batch = (traj_batch, advantages, targets)
+                batch = traj_batch, advantages, targets
                 batch = jax.tree_util.tree_map(
                     lambda x: x.reshape((batch_size,) + x.shape[2:]), batch
                 )
@@ -248,10 +254,10 @@ def make_train(config):
                     shuffled_batch,
                 )
                 train_state, total_loss = jax.lax.scan(_update_minbatch, train_state, minibatches)
-                update_state = (train_state, traj_batch, advantages, targets, rng)
+                update_state = train_state, traj_batch, advantages, targets, rng
                 return update_state, total_loss
 
-            update_state = (train_state, traj_batch, advantages, targets, rng)
+            update_state = train_state, traj_batch, advantages, targets, rng
             update_state, loss_info = jax.lax.scan(
                 _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
             )
@@ -259,7 +265,7 @@ def make_train(config):
             metric = traj_batch.info
             rng = update_state[-1]
 
-            runner_state = (train_state, env_state, last_obs, rng)
+            runner_state = train_state, env_state, last_obs, rng
             return runner_state, metric
 
         runner_state, metric = jax.lax.scan(_update_step, runner_state, None, updates_per_chunk)
