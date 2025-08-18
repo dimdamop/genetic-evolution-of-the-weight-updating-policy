@@ -23,6 +23,7 @@ from wrappers import (
     LogWrapper,
     NormalizeVecObservation,
     NormalizeVecReward,
+    NormalizeVecRewEnvState,
     VecEnv,
 )
 
@@ -68,54 +69,48 @@ class Transition(NamedTuple):
     info: jnp.ndarray
 
 
-# @struct.dataclass
-# class RunnerState:
-#     train: TrainState
-#     env_state, obsv, rng
+@struct.dataclass
+class RunnerState:
+    train: TrainState
+    env: NormalizeVecRewEnvState
+    obsv: jnp.ndarray
+    rng: jnp.ndarray
 
-def make_train(config):
-    config["NUM_UPDATES"] = int(
-        config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
-    )
-    config["MINIBATCH_SIZE"] = int(
-        config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
-    )
 
-    updates_per_chunk = np.ceil(config["NUM_UPDATES"] / config["NUM_CHECKPOINTS"]).astype(int)
+def make_train(conf):
+    conf["NUM_UPDATES"] = int(conf["TOTAL_TIMESTEPS"] // conf["NUM_STEPS"] // conf["NUM_ENVS"])
+    conf["MINIBATCH_SIZE"] = int(conf["NUM_ENVS"] * conf["NUM_STEPS"] // conf["NUM_MINIBATCHES"])
+    updates_per_chunk = np.ceil(conf["NUM_UPDATES"] / conf["NUM_CHUNKS"]).astype(int)
 
-    env, env_params = BraxGymnaxWrapper(config["ENV_NAME"]), None
+    env, env_params = BraxGymnaxWrapper(conf["ENV_NAME"]), None
     env = LogWrapper(env)
     env = ClipAction(env)
     env = VecEnv(env)
-    if config["NORMALIZE_ENV"]:
+    if conf["NORMALIZE_ENV"]:
         env = NormalizeVecObservation(env)
-        env = NormalizeVecReward(env, config["GAMMA"])
+        env = NormalizeVecReward(env, conf["GAMMA"])
 
     def linear_schedule(count):
         frac = (
-            1.0
-            - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"]))
-            / config["NUM_UPDATES"]
+            1.0 - (count // (conf["NUM_MINIBATCHES"] * conf["UPDATE_EPOCHS"])) / conf["NUM_UPDATES"]
         )
-        return config["LR"] * frac
+        return conf["LR"] * frac
 
     def train_init(rng):
         # INIT NETWORK
-        network = ActorCritic(
-            env.action_space(env_params).shape[0], activation=config["ACTIVATION"]
-        )
+        network = ActorCritic(env.action_space(env_params).shape[0], activation=conf["ACTIVATION"])
         rng, _rng = jax.random.split(rng)
         init_x = jnp.zeros(env.observation_space(env_params).shape)
         network_params = network.init(_rng, init_x)
-        if config["ANNEAL_LR"]:
+        if conf["ANNEAL_LR"]:
             tx = optax.chain(
-                optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
+                optax.clip_by_global_norm(conf["MAX_GRAD_NORM"]),
                 optax.adam(learning_rate=linear_schedule, eps=1e-5),
             )
         else:
             tx = optax.chain(
-                optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
-                optax.adam(config["LR"], eps=1e-5),
+                optax.clip_by_global_norm(conf["MAX_GRAD_NORM"]),
+                optax.adam(conf["LR"], eps=1e-5),
             )
         train_state = TrainState.create(
             apply_fn=network.apply,
@@ -125,22 +120,23 @@ def make_train(config):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
+        reset_rng = jax.random.split(_rng, conf["NUM_ENVS"])
         obsv, env_state = env.reset(reset_rng, env_params)
 
-        return (train_state, env_state, obsv, rng)
+        return RunnerState(train=train_state, env=env_state, obsv=obsv, rng=rng)
 
-    def train_chunk(runner_state):
+    def train_chunk(runner_state: RunnerState):
 
-        network = ActorCritic(
-            env.action_space(env_params).shape[0], activation=config["ACTIVATION"]
-        )
+        network = ActorCritic(env.action_space(env_params).shape[0], activation=conf["ACTIVATION"])
 
         # TRAIN LOOP
-        def _update_step(runner_state, unused):
+        def _update_step(runner_state: RunnerState, unused):
             # COLLECT TRAJECTORIES
-            def _env_step(runner_state, unused):
-                train_state, env_state, last_obs, rng = runner_state
+            def _env_step(runner_state: RunnerState, unused):
+                train_state = runner_state.train
+                env_state = runner_state.env
+                last_obs = runner_state.obsv
+                rng = runner_state.rng
 
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
@@ -150,20 +146,22 @@ def make_train(config):
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
-                rng_step = jax.random.split(_rng, config["NUM_ENVS"])
+                rng_step = jax.random.split(_rng, conf["NUM_ENVS"])
                 obsv, env_state, reward, done, info = env.step(
                     rng_step, env_state, action, env_params
                 )
                 transition = Transition(done, action, value, reward, log_prob, last_obs, info)
-                runner_state = train_state, env_state, obsv, rng
-                return runner_state, transition
+                return RunnerState(train=train_state, env=env_state, obsv=obsv, rng=rng), transition
 
             runner_state, traj_batch = jax.lax.scan(
-                _env_step, runner_state, None, config["NUM_STEPS"]
+                _env_step, runner_state, None, conf["NUM_STEPS"]
             )
 
             # CALCULATE ADVANTAGE
-            train_state, env_state, last_obs, rng = runner_state
+            train_state = runner_state.train
+            env_state = runner_state.env
+            last_obs = runner_state.obsv
+            rng = runner_state.rng
             _, last_val = network.apply(train_state.params, last_obs)
 
             def _calculate_gae(traj_batch, last_val):
@@ -174,8 +172,8 @@ def make_train(config):
                         transition.value,
                         transition.reward,
                     )
-                    delta = reward + config["GAMMA"] * next_value * (1 - done) - value
-                    gae = delta + config["GAMMA"] * config["GAE_LAMBDA"] * (1 - done) * gae
+                    delta = reward + conf["GAMMA"] * next_value * (1 - done) - value
+                    gae = delta + conf["GAMMA"] * conf["GAE_LAMBDA"] * (1 - done) * gae
                     return (gae, value), gae
 
                 _, advantages = jax.lax.scan(
@@ -201,7 +199,7 @@ def make_train(config):
 
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(
-                            -config["CLIP_EPS"], config["CLIP_EPS"]
+                            -conf["CLIP_EPS"], conf["CLIP_EPS"]
                         )
                         value_losses = jnp.square(value - targets)
                         value_losses_clipped = jnp.square(value_pred_clipped - targets)
@@ -214,8 +212,8 @@ def make_train(config):
                         loss_actor2 = (
                             jnp.clip(
                                 ratio,
-                                1.0 - config["CLIP_EPS"],
-                                1.0 + config["CLIP_EPS"],
+                                1.0 - conf["CLIP_EPS"],
+                                1.0 + conf["CLIP_EPS"],
                             )
                             * gae
                         )
@@ -224,9 +222,7 @@ def make_train(config):
                         entropy = pi.entropy().mean()
 
                         total_loss = (
-                            loss_actor
-                            + config["VF_COEF"] * value_loss
-                            - config["ENT_COEF"] * entropy
+                            loss_actor + conf["VF_COEF"] * value_loss - conf["ENT_COEF"] * entropy
                         )
                         return total_loss, (value_loss, loss_actor, entropy)
 
@@ -237,9 +233,9 @@ def make_train(config):
 
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
-                batch_size = config["MINIBATCH_SIZE"] * config["NUM_MINIBATCHES"]
+                batch_size = conf["MINIBATCH_SIZE"] * conf["NUM_MINIBATCHES"]
                 assert (
-                    batch_size == config["NUM_STEPS"] * config["NUM_ENVS"]
+                    batch_size == conf["NUM_STEPS"] * conf["NUM_ENVS"]
                 ), "batch size must be equal to number of steps * number of envs"
                 permutation = jax.random.permutation(_rng, batch_size)
                 batch = traj_batch, advantages, targets
@@ -250,7 +246,7 @@ def make_train(config):
                     lambda x: jnp.take(x, permutation, axis=0), batch
                 )
                 minibatches = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(x, [config["NUM_MINIBATCHES"], -1] + list(x.shape[1:])),
+                    lambda x: jnp.reshape(x, [conf["NUM_MINIBATCHES"], -1] + list(x.shape[1:])),
                     shuffled_batch,
                 )
                 train_state, total_loss = jax.lax.scan(_update_minbatch, train_state, minibatches)
@@ -259,31 +255,29 @@ def make_train(config):
 
             update_state = train_state, traj_batch, advantages, targets, rng
             update_state, loss_info = jax.lax.scan(
-                _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
+                _update_epoch, update_state, None, conf["UPDATE_EPOCHS"]
             )
             train_state = update_state[0]
             metric = traj_batch.info
             rng = update_state[-1]
 
-            runner_state = train_state, env_state, last_obs, rng
-            return runner_state, metric
+            return RunnerState(train=train_state, env=env_state, obsv=last_obs, rng=rng), metric
 
-        runner_state, metric = jax.lax.scan(_update_step, runner_state, None, updates_per_chunk)
-        return runner_state, metric
+        return jax.lax.scan(_update_step, runner_state, None, updates_per_chunk)
 
     return train_init, train_chunk
 
 
 def cli():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config-filepath")
+    parser.add_argument("--conf-filepath")
     parser.add_argument("--random-seed", type=int, default=1)
     parser.add_argument("--out-metrics-filepath")
     parser.add_argument("--save-checkpoints-dirpath")
     parser.add_argument("--load-checkpoint-filepath")
     args = parser.parse_args()
 
-    config = {
+    conf = {
         "LR": 3e-4,
         "NUM_ENVS": 2048,
         "NUM_STEPS": 10,
@@ -300,21 +294,21 @@ def cli():
         "ENV_NAME": "hopper",
         "ANNEAL_LR": False,
         "NORMALIZE_ENV": True,
-        "NUM_CHECKPOINTS": 25,
+        "NUM_CHUNKS": 10,
     }
 
-    if args.config_filepath:
-        with open(args.config_filepath, "r") as fd:
-            config.update(json.load(fd))
+    if args.conf_filepath:
+        with open(args.conf_filepath, "r") as fd:
+            conf.update(json.load(fd))
 
-    return args, config
+    return args, conf
 
 
 def main():
 
-    args, config = cli()
+    args, conf = cli()
 
-    train_init, train_chunk = make_train(config)
+    train_init, train_chunk = make_train(conf)
 
     if args.load_checkpoint_filepath or args.save_checkpoints_dirpath:
         checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
@@ -334,18 +328,18 @@ def main():
     if args.out_metrics_filepath:
         reported_metrics = {"global_step": [], "chunk": [], "episodic_return": []}
 
-    for chunk in trange(config["NUM_CHECKPOINTS"]):
+    for chunk in trange(conf["NUM_CHUNKS"]):
         runner_state, metrics = train_chunk_jit(runner_state)
         if args.out_metrics_filepath:
             return_values = metrics["returned_episode_returns"][metrics["returned_episode"]]
-            timesteps = metrics["timestep"][metrics["returned_episode"]] * config["NUM_ENVS"]
+            timesteps = metrics["timestep"][metrics["returned_episode"]] * conf["NUM_ENVS"]
             reported_metrics["global_step"] += timesteps.tolist()
             reported_metrics["episodic_return"] += return_values.tolist()
             reported_metrics["chunk"] += [chunk] * len(timesteps)
 
         if args.save_checkpoints_dirpath:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%Hh%Mm%Ss")
-            checkpoint_path = ckpt_dir / f"{timestamp}_{chunk + 1}_of_{config['NUM_CHECKPOINTS']}"
+            checkpoint_path = ckpt_dir / f"{timestamp}_{chunk + 1}_of_{conf['NUM_CHUNKS']}"
             checkpointer.save(checkpoint_path, args=ocp.args.StandardSave(runner_state))
 
     if args.out_metrics_filepath:
