@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import orbax.checkpoint as ocp
+from optax import ScaleByAdamState
 import pandas as pd
 from etils import epath
 from flax.struct import dataclass
@@ -87,6 +88,7 @@ def make_train(conf):
     env = LogWrapper(env)
     env = ClipAction(env)
     env = VecEnv(env)
+
     if conf["NORMALIZE_ENV"]:
         env = NormalizeVecObservation(env)
         env = NormalizeVecReward(env, conf["GAMMA"])
@@ -318,11 +320,15 @@ def main():
 
     if args.load_checkpoint_filepath:
         runner_state_dict = ckpter.restore(args.load_checkpoint_filepath)["runner_state"]
-        # The following doesn't work
-        runner_state.train.params = runner_state_dict["train"]["params"]
-        runner_state.env = runner_state_dict["env"]
-        runner_state.obsv = runner_state_dict["obsv"]
-        runner_state.rng = runner_state_dict["rng"]
+        adam_state_dict = runner_state_dict['train']['opt_state'][1][0]
+        adam = ScaleByAdamState(**adam_state_dict)
+        # opt_state = runner_state.train.opt_state[0], (adam, runner_state.train.opt_state[1][1])
+        runner_state = runner_state.replace(
+            train=runner_state.train.replace(
+                params=runner_state_dict["train"]["params"],
+                # opt_state=opt_state,
+            )
+        )
 
     train_chunk_jit = jax.jit(train_chunk)
 
