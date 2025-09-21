@@ -1,7 +1,7 @@
 import argparse
-import datetime
 import json
 import os
+from datetime import datetime
 from typing import Any, NamedTuple, Sequence
 
 import distrax
@@ -13,7 +13,8 @@ import optax
 import orbax.checkpoint as ocp
 import pandas as pd
 from etils import epath
-from flax import struct
+from flax.struct import dataclass
+from flax.training import orbax_utils
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 from tqdm import trange
@@ -69,7 +70,7 @@ class Transition(NamedTuple):
     info: jnp.ndarray
 
 
-@struct.dataclass
+@dataclass
 class RunnerState:
     train: TrainState
     env: NormalizeVecRewEnvState
@@ -294,7 +295,7 @@ def cli():
         "ENV_NAME": "hopper",
         "ANNEAL_LR": False,
         "NORMALIZE_ENV": True,
-        "NUM_CHUNKS": 10,
+        "NUM_CHUNKS": 3,
     }
 
     if args.conf_filepath:
@@ -309,15 +310,19 @@ def main():
     args, conf = cli()
 
     train_init, train_chunk = make_train(conf)
+    rng = jax.random.PRNGKey(args.random_seed)
+    runner_state = jax.jit(train_init)(rng)
 
     if args.load_checkpoint_filepath or args.save_checkpoints_dirpath:
-        checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
+        ckpter = ocp.AsyncCheckpointer(ocp.PyTreeCheckpointHandler())
 
     if args.load_checkpoint_filepath:
-        runner_state = checkpointer.restore(args.load_checkpoint_filepath)
-    else:
-        rng = jax.random.PRNGKey(args.random_seed)
-        runner_state = jax.jit(train_init)(rng)
+        runner_state_dict = ckpter.restore(args.load_checkpoint_filepath)["runner_state"]
+        # The following doesn't work
+        runner_state.train.params = runner_state_dict["train"]["params"]
+        runner_state.env = runner_state_dict["env"]
+        runner_state.obsv = runner_state_dict["obsv"]
+        runner_state.rng = runner_state_dict["rng"]
 
     train_chunk_jit = jax.jit(train_chunk)
 
@@ -338,15 +343,16 @@ def main():
             reported_metrics["chunk"] += [chunk] * len(timesteps)
 
         if args.save_checkpoints_dirpath:
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%Hh%Mm%Ss")
-            checkpoint_path = ckpt_dir / f"{timestamp}_{chunk + 1}_of_{conf['NUM_CHUNKS']}"
-            checkpointer.save(checkpoint_path, args=ocp.args.StandardSave(runner_state))
+            timestamp = datetime.now().strftime("%Y-%m-%d-%Hh%Mm%Ss")
+            ckpt_path = ckpt_dir / f"{chunk + 1}-of-{conf['NUM_CHUNKS']}_{timestamp}"
+            ckpt = {"runner_state": runner_state}
+            ckpter.save(ckpt_path, ckpt, save_args=orbax_utils.save_args_from_target(ckpt))
 
     if args.out_metrics_filepath:
         pd.DataFrame.from_dict(reported_metrics).to_csv(args.out_metrics_filepath, index=False)
 
     if args.save_checkpoints_dirpath:
-        checkpointer.wait_until_finished()
+        ckpter.wait_until_finished()
 
 
 if __name__ == "__main__":
