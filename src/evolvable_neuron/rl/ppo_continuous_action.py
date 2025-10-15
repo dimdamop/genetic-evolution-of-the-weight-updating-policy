@@ -307,9 +307,36 @@ def cli():
     return args, conf
 
 
+def load_checkpoint(ckpt_path, checkpointer, runner_state: RunnerState, optim=False) -> RunnerState:
+    runner_state_dict = checkpointer.restore(ckpt_path)["runner_state"]
+
+    if optim:
+        adam_state_dict = runner_state_dict["train"]["opt_state"][1][0]
+        adam = ScaleByAdamState(**adam_state_dict)
+        opt_state = runner_state.train.opt_state[0], (adam, runner_state.train.opt_state[1][1])
+
+        return runner_state.replace(
+            train=runner_state.train.replace(
+                params=runner_state_dict["train"]["params"],
+                opt_state=opt_state,
+            )
+        )
+
+        return runner_state.replace(
+            train=runner_state.train.replace(params=runner_state_dict["train"]["params"])
+        )
+
+
+def save_checkpoint(ckpt_path, checkpointer, runner_state: RunnerState) -> None:
+    ckpt = {"runner_state": runner_state}
+    checkpointer.save(ckpt_path, ckpt, save_args=orbax_utils.save_args_from_target(ckpt))
+
+
 def main():
 
     args, conf = cli()
+
+    print(f"Configuration: {conf}")
 
     train_init, train_chunk = make_train(conf)
     rng = jax.random.PRNGKey(args.random_seed)
@@ -319,16 +346,8 @@ def main():
         ckpter = ocp.AsyncCheckpointer(ocp.PyTreeCheckpointHandler())
 
     if args.load_checkpoint_filepath:
-        runner_state_dict = ckpter.restore(args.load_checkpoint_filepath)["runner_state"]
-        adam_state_dict = runner_state_dict['train']['opt_state'][1][0]
-        adam = ScaleByAdamState(**adam_state_dict)
-        # opt_state = runner_state.train.opt_state[0], (adam, runner_state.train.opt_state[1][1])
-        runner_state = runner_state.replace(
-            train=runner_state.train.replace(
-                params=runner_state_dict["train"]["params"],
-                # opt_state=opt_state,
-            )
-        )
+        print(f"Loading the runner state from {args.load_checkpoint_filepath}...")
+        runner_state = load_checkpoint(args.load_checkpoint_filepath, ckpter, runner_state)
 
     train_chunk_jit = jax.jit(train_chunk)
 
@@ -351,13 +370,14 @@ def main():
         if args.save_checkpoints_dirpath:
             timestamp = datetime.now().strftime("%Y-%m-%d-%Hh%Mm%Ss")
             ckpt_path = ckpt_dir / f"{chunk + 1}-of-{conf['NUM_CHUNKS']}_{timestamp}"
-            ckpt = {"runner_state": runner_state}
-            ckpter.save(ckpt_path, ckpt, save_args=orbax_utils.save_args_from_target(ckpt))
+            save_checkpoint(ckpt_path, ckpter, runner_state)
 
     if args.out_metrics_filepath:
         pd.DataFrame.from_dict(reported_metrics).to_csv(args.out_metrics_filepath, index=False)
 
     if args.save_checkpoints_dirpath:
+        timestamp = datetime.now().strftime("%Y-%m-%d-%Hh%Mm%Ss")
+        ckpt_path = ckpt_dir / f"{chunk + 1}-of-{conf['NUM_CHUNKS']}_{timestamp}"
         ckpter.wait_until_finished()
 
 
