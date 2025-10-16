@@ -322,9 +322,9 @@ def load_checkpoint(ckpt_path, checkpointer, runner_state: RunnerState, optim=Fa
             )
         )
 
-        return runner_state.replace(
-            train=runner_state.train.replace(params=runner_state_dict["train"]["params"])
-        )
+    return runner_state.replace(
+        train=runner_state.train.replace(params=runner_state_dict["train"]["params"])
+    )
 
 
 def save_checkpoint(ckpt_path, checkpointer, runner_state: RunnerState) -> None:
