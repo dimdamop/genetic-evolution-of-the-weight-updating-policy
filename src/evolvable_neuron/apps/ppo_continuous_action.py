@@ -19,7 +19,7 @@ from flax.training import orbax_utils
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 from tqdm import trange
-from wrappers import (
+from evolvable_neuron.rl.wrappers import (
     BraxGymnaxWrapper,
     ClipAction,
     LogWrapper,
