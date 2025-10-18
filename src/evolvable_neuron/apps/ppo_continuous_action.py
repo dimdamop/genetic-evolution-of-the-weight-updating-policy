@@ -192,7 +192,7 @@ def make_train(conf):
 
             # UPDATE NETWORK
             def _update_epoch(update_state, unused):
-                def _update_minbatch(train_state, batch_info):
+                def _update_minibatch(train_state, batch_info):
                     traj_batch, advantages, targets = batch_info
 
                     def _loss_fn(params, traj_batch, gae, targets):
@@ -252,7 +252,7 @@ def make_train(conf):
                     lambda x: jnp.reshape(x, [conf["NUM_MINIBATCHES"], -1] + list(x.shape[1:])),
                     shuffled_batch,
                 )
-                train_state, total_loss = jax.lax.scan(_update_minbatch, train_state, minibatches)
+                train_state, total_loss = jax.lax.scan(_update_minibatch, train_state, minibatches)
                 update_state = train_state, traj_batch, advantages, targets, rng
                 return update_state, total_loss
 
