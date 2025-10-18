@@ -67,7 +67,7 @@ class Transition(NamedTuple):
     value: jnp.ndarray
     reward: jnp.ndarray
     log_prob: jnp.ndarray
-    obs: jnp.ndarray
+    obsv: jnp.ndarray
     info: jnp.ndarray
 
 
@@ -76,6 +76,15 @@ class RunnerState:
     train: TrainState
     env: NormalizeVecRewEnvState
     obsv: jnp.ndarray
+    rng: jnp.ndarray
+
+
+@dataclass
+class UpdateState:
+    train: TrainState
+    traj_batch: Any
+    advantages: jnp.ndarray
+    targets: jnp.ndarray
     rng: jnp.ndarray
 
 
@@ -136,14 +145,9 @@ def make_train(conf):
         def _update_step(runner_state: RunnerState, unused):
             # COLLECT TRAJECTORIES
             def _env_step(runner_state: RunnerState, unused):
-                train_state = runner_state.train
-                env_state = runner_state.env
-                last_obs = runner_state.obsv
-                rng = runner_state.rng
-
                 # SELECT ACTION
-                rng, _rng = jax.random.split(rng)
-                pi, value = network.apply(train_state.params, last_obs)
+                rng, _rng = jax.random.split(runner_state.rng)
+                pi, value = network.apply(runner_state.train.params, runner_state.obsv)
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
 
@@ -151,10 +155,20 @@ def make_train(conf):
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, conf["NUM_ENVS"])
                 obsv, env_state, reward, done, info = env.step(
-                    rng_step, env_state, action, env_params
+                    rng_step, runner_state.env, action, env_params
                 )
-                transition = Transition(done, action, value, reward, log_prob, last_obs, info)
-                return RunnerState(train=train_state, env=env_state, obsv=obsv, rng=rng), transition
+                return (
+                    RunnerState(train=runner_state.train, env=env_state, obsv=obsv, rng=rng),
+                    Transition(
+                        done=done,
+                        action=action,
+                        value=value,
+                        reward=reward,
+                        log_prob=log_prob,
+                        obsv=runner_state.obsv,
+                        info=info,
+                    ),
+                )
 
             runner_state, traj_batch = jax.lax.scan(
                 _env_step, runner_state, None, conf["NUM_STEPS"]
@@ -191,13 +205,13 @@ def make_train(conf):
             advantages, targets = _calculate_gae(traj_batch, last_val)
 
             # UPDATE NETWORK
-            def _update_epoch(update_state, unused):
+            def _update_epoch(update_state: UpdateState, unused):
                 def _update_minibatch(train_state, batch_info):
                     traj_batch, advantages, targets = batch_info
 
                     def _loss_fn(params, traj_batch, gae, targets):
                         # RERUN NETWORK
-                        pi, value = network.apply(params, traj_batch.obs)
+                        pi, value = network.apply(params, traj_batch.obsv)
                         log_prob = pi.log_prob(traj_batch.action)
 
                         # CALCULATE VALUE LOSS
@@ -234,14 +248,13 @@ def make_train(conf):
                     train_state = train_state.apply_gradients(grads=grads)
                     return train_state, total_loss
 
-                train_state, traj_batch, advantages, targets, rng = update_state
-                rng, _rng = jax.random.split(rng)
+                rng, _rng = jax.random.split(update_state.rng)
                 batch_size = conf["MINIBATCH_SIZE"] * conf["NUM_MINIBATCHES"]
                 assert (
                     batch_size == conf["NUM_STEPS"] * conf["NUM_ENVS"]
                 ), "batch size must be equal to number of steps * number of envs"
                 permutation = jax.random.permutation(_rng, batch_size)
-                batch = traj_batch, advantages, targets
+                batch = update_state.traj_batch, update_state.advantages, update_state.targets
                 batch = jax.tree_util.tree_map(
                     lambda x: x.reshape((batch_size,) + x.shape[2:]), batch
                 )
@@ -252,19 +265,38 @@ def make_train(conf):
                     lambda x: jnp.reshape(x, [conf["NUM_MINIBATCHES"], -1] + list(x.shape[1:])),
                     shuffled_batch,
                 )
-                train_state, total_loss = jax.lax.scan(_update_minibatch, train_state, minibatches)
-                update_state = train_state, traj_batch, advantages, targets, rng
+                train_state, total_loss = jax.lax.scan(
+                    _update_minibatch,
+                    update_state.train,
+                    minibatches,
+                )
+                update_state = UpdateState(
+                    train=train_state,
+                    traj_batch=update_state.traj_batch,
+                    advantages=update_state.advantages,
+                    targets=update_state.targets,
+                    rng=rng,
+                )
                 return update_state, total_loss
 
-            update_state = train_state, traj_batch, advantages, targets, rng
+            update_state = UpdateState(
+                train=train_state,
+                traj_batch=traj_batch,
+                advantages=advantages,
+                targets=targets,
+                rng=rng,
+            )
+
             update_state, loss_info = jax.lax.scan(
                 _update_epoch, update_state, None, conf["UPDATE_EPOCHS"]
             )
-            train_state = update_state[0]
-            metric = traj_batch.info
-            rng = update_state[-1]
 
-            return RunnerState(train=train_state, env=env_state, obsv=last_obs, rng=rng), metric
+            return (
+                RunnerState(
+                    train=update_state.train, env=env_state, obsv=last_obs, rng=update_state.rng
+                ),
+                update_state.traj_batch.info,
+            )
 
         return jax.lax.scan(_update_step, runner_state, None, updates_per_chunk)
 

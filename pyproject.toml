@@ -29,7 +29,8 @@ dependencies = [
     "orbax",
     "gymnax",
     "brax",
-    "tqdm"
+    "tqdm",
+    "hydra-core",
 ]
 requires-python = ">=3.12, < 3.13"
 
@@ -40,9 +41,9 @@ version = {attr = "evolvable_neuron.__version__"}
 dev = ["black", "isort", "flake8"]
 
 [project.scripts]
-evln-train = "evolvable_neuron.apps.train:main"
+evln-train-prev = "evolvable_neuron.apps.train:main"
 evln-clone = "evolvable_neuron.apps.dense_impl_cloner:main"
-evln-train = "evolvable_neuron.ppo_continuous_action:main"
+evln-train = "evolvable_neuron.apps.ppo_continuous_action:main"
 
 [tool.black]
 line-length = 100
